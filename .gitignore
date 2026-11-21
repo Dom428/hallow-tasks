@@ -1,0 +1,6 @@
+# build output
+HallowTasks.exe
+tests/TasksTests.exe
+tests/Dummy.exe
+tests/out/
+package/HallowTasks.exe
