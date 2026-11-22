@@ -13,7 +13,7 @@ using Microsoft.Win32;
 
 namespace HallowTasks.Tests
 {
-    public static class Run
+    public static partial class Run
     {
         static int pass, fail;
         static void Ok(bool c, string name) { if (c) { pass++; Console.WriteLine("ok   " + name); } else { fail++; Console.WriteLine("FAIL " + name); } }
@@ -25,7 +25,7 @@ namespace HallowTasks.Tests
             if (args.Contains("--overhead")) return Overhead();
             Dir = Path.Combine(Path.GetTempPath(), "HallowTasksTest" + Process.GetCurrentProcess().Id);
             Environment.SetEnvironmentVariable("HALLOW_TASKS_TESTDIR", Dir);
-            try { Lists(); Groups(); Impact(); Detect(); Panel(); Keeper(); SafetyRules(); StartupBits(); StartupStoreTest(); Family(); Formats(); RealSampling(); RealControl(); PipeAndApp(); RealCopy(); }
+            try { Lists(); Groups(); Impact(); Detect(); Panel(); Keeper(); SafetyRules(); StartupBits(); StartupStoreTest(); Family(); Formats(); V11(); RealSampling(); RealControl(); PipeAndApp(); RealCopy(); if (!args.Contains("--quick")) OverheadCopy(); }
             catch (Exception e) { fail++; Console.WriteLine("FAIL exception: " + e); }
             try { using (var k = Registry.CurrentUser.OpenSubKey(@"Software\HallowTasks")) if (k != null && k.SubKeyCount == 0 && k.ValueCount == 0) { k.Close(); Registry.CurrentUser.DeleteSubKey(@"Software\HallowTasks", false); } } catch { }
             try { if (Directory.Exists(Dir)) Directory.Delete(Dir, true); } catch { }
@@ -396,6 +396,8 @@ namespace HallowTasks.Tests
                 Ok(Cmd(exe, dir, "test-end chrome") == "ok", "End task on Chrome's group");
                 r = Cmd(exe, dir, "test-calls"); Ok(r.Contains("kill 4300") && r.Contains("kill 4340") && !r.Contains("kill 5020") && !r.Contains("kill 5044"), "it ended Chrome's 5 processes and nothing else");
                 Ok(Cmd(exe, dir, "test-end svchost").StartsWith("error") && Cmd(exe, dir, "test-end explorer").StartsWith("error"), "Service Host / Explorer: refused");
+                Ok(Cmd(exe, dir, "test-game on") == "ok DeltaForceClient-Win64-Shipping.exe", "game on again for the 1.1 checks");
+                PipeV11(exe, dir);
                 Ok(Cmd(exe, dir, "test-autostart on") == "ok True" && Cmd(exe, dir, "test-autostart off") == "ok False", "Start with Windows (test file, never the real Run key)");
                 Ok(Cmd(exe, dir, "quit") == "ok", "quit");
                 Ok(app.WaitForExit(8000), "the test copy exits");

@@ -31,8 +31,16 @@ namespace HallowTasks
         [DataMember] public string LastUpdateCheck;
         [DataMember] public string LastCrashShown;
         [DataMember] public bool TrayHintShown;
+        // 1.1
+        [DataMember] public string Look = "hallow";        // "hallow" (follow theme.json's mode), "light", "dark"
+        [DataMember] public bool HistoryInTray = true;      // keep the rolling hour while the window is closed (a sample every 5 s)
+        [DataMember] public bool HistoryLog;                // the 24-hour log on disk (one line a minute, at most ~1 MB) - off by default
+        [DataMember] public bool Alerts;                    // a quiet note through Hallow Hub while you play - off by default
+        [DataMember] public int AlertCpu = 25, AlertGpu = 25, AlertSeconds = 20;
+        [DataMember] public bool ControlMicrosoftServices;  // Services: Microsoft's are "leave alone" unless this is on
+        [DataMember] public bool TreeView;                  // Processes: parent -> children instead of app groups
 
-        [OnDeserializing] void Defaults(StreamingContext c) { UseHallowIcon = true; UseHallowAccent = true; Sort = "impact"; }
+        [OnDeserializing] void Defaults(StreamingContext c) { UseHallowIcon = true; UseHallowAccent = true; Sort = "impact"; Look = "hallow"; HistoryInTray = true; AlertCpu = 25; AlertGpu = 25; AlertSeconds = 20; }
 
         public static TaskSettings Load()
         {
@@ -53,6 +61,8 @@ namespace HallowTasks
             if (ExtraGames == null) ExtraGames = new List<string>();
             ExtraGames.RemoveAll(string.IsNullOrWhiteSpace);
             if (string.IsNullOrEmpty(Sort)) Sort = "impact";
+            if (Look != "light" && Look != "dark") Look = "hallow";
+            AlertCpu = Math.Max(5, Math.Min(100, AlertCpu)); AlertGpu = Math.Max(5, Math.Min(100, AlertGpu)); AlertSeconds = Math.Max(5, Math.Min(600, AlertSeconds));
         }
 
         static readonly object saveLock = new object();

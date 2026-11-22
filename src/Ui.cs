@@ -1,5 +1,5 @@
 ﻿// Hallow Tasks - small helpers for building WPF in code (no XAML compiler): theme brushes by key, text, buttons, cards, dark title
-// bars, program icons. No colour is written here: everything comes from Theme.xaml (so a light mode is one more dictionary).
+// or light title bars, program icons. No colour is written here: everything comes from Theme.xaml (light mode swaps its values - Look.cs).
 using System;
 using System.Collections.Generic;
 using System.Reflection;
@@ -25,7 +25,12 @@ namespace HallowTasks
             w.Title = title; w.Width = width; w.SizeToContent = SizeToContent.Height;
             Restyle(w); w.FontSize = 12.5;
             try { w.Icon = AppIcon(); } catch { }
-            w.SourceInitialized += (s, e) => { int dark = 1; DwmSetWindowAttribute(new WindowInteropHelper(w).Handle, 20, ref dark, 4); };
+            w.SourceInitialized += (s, e) => TitleBar(w);
+        }
+        // Windows' title bar follows the mode (DWMWA_USE_IMMERSIVE_DARK_MODE = 20)
+        public static void TitleBar(Window w)
+        {
+            try { var h = new WindowInteropHelper(w).Handle; if (h == IntPtr.Zero) return; int dark = Program.Light ? 0 : 1; DwmSetWindowAttribute(h, 20, ref dark, 4); } catch { }
         }
         public static void Restyle(Window w) { w.Background = R("Bg"); w.Foreground = R("Text"); w.FontFamily = (FontFamily)Application.Current.FindResource("BodyFont"); }
         static ImageSource icon;

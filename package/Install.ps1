@@ -7,7 +7,7 @@ $dest = Join-Path $env:LOCALAPPDATA 'Programs\Hallow Tasks'
 New-Item -ItemType Directory -Force $dest | Out-Null
 $wasRunning = [bool](Get-Process HallowTasks -ErrorAction SilentlyContinue)
 if ($wasRunning) { try { $old = Join-Path $dest "HallowTasks.exe"; if (Test-Path $old) { & $old --cmd quit | Out-Null; Start-Sleep -Milliseconds 1500 } } catch { } }   # lowered priorities go back first
-Get-Process HallowTasks -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-Process HallowTasks -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue   # (the elevated precise-network helper, if any, ends by itself with Tasks)
 Start-Sleep -Milliseconds 500
 Copy-Item (Join-Path $PSScriptRoot 'HallowTasks.exe') $dest -Force
 foreach ($f in 'README.txt', 'Uninstall.ps1', 'FontAwesome-LICENSE.txt') { Copy-Item (Join-Path $PSScriptRoot $f) $dest -Force -ErrorAction SilentlyContinue }

@@ -22,7 +22,8 @@ namespace HallowTasks
         public double Gpu;                // % - the busiest 3D engine use of this process (GPU Engine counters, engtype_3D, summed per PID)
         public long GpuMem;               // dedicated GPU memory, bytes
         public double DiskRead, DiskWrite; // bytes/s of file and device I/O (like Process Explorer's I/O column)
-        public int Conns = -1;            // open TCP connections (-1 = not counted); per-process bytes need admin (ETW), so not shown
+        public int Conns = -1;            // open TCP connections (-1 = not counted)
+        public double NetSend = -1, NetRecv = -1;   // bytes/s - only with the optional "Precise network" helper (admin, ETW); -1 = not known
         public bool HasWindow;            // has a visible top-level window (an "app" in Task Manager's words)
         public string Description, Company, Signer;   // from the file (filled in later, in the background)
         public bool? Signed;              // valid Authenticode signature (null = not checked yet / no file)
@@ -36,7 +37,7 @@ namespace HallowTasks
     {
         public string Key, Title, Category;   // Category: "Apps", "Background", "Windows", "Hallow"
         public List<ProcInfo> Members = new List<ProcInfo>();
-        public double Cpu, Gpu, DiskRead, DiskWrite; public long Ram, GpuMem; public int Conns = -1;
+        public double Cpu, Gpu, DiskRead, DiskWrite; public long Ram, GpuMem; public int Conns = -1; public double NetBytes = -1;
         public double Impact; public string Power;
         public bool IsGame, IsAntiCheat, IsProtected;
         public ProcInfo Main { get { return Members.Count == 0 ? null : Members.FirstOrDefault(m => m.HasWindow) ?? Members.OrderBy(m => m.CreateTime).First(); } }
@@ -48,6 +49,7 @@ namespace HallowTasks
             Cpu = Members.Sum(m => m.Cpu); Gpu = Math.Min(100, Members.Sum(m => m.Gpu)); DiskRead = Members.Sum(m => m.DiskRead); DiskWrite = Members.Sum(m => m.DiskWrite);
             Ram = Members.Sum(m => m.Ram); GpuMem = Members.Sum(m => m.GpuMem);
             Conns = Members.All(m => m.Conns < 0) ? -1 : Members.Where(m => m.Conns > 0).Sum(m => m.Conns);
+            NetBytes = Members.All(m => m.NetSend < 0) ? -1 : Members.Where(m => m.NetSend >= 0).Sum(m => m.NetSend + m.NetRecv);
             Impact = ImpactCalc.Score(Cpu, Gpu, DiskRead + DiskWrite, Ram); Power = ImpactCalc.Power(Cpu, Gpu, DiskRead + DiskWrite);
         }
     }
@@ -227,6 +229,43 @@ namespace HallowTasks
             return r;
         }
 
+        // the tree view: every process under the one that started it (a "parent" that started later is a reused PID, so that process
+        // is a root). Returns the rows in display order with their depth; collapsed = process keys whose children are hidden;
+        // show = the processes that match the search/filter (their parents are kept so the tree stays readable; null = all).
+        public class TreeRow { public ProcInfo Proc; public int Depth; public bool HasChildren; }
+        public static List<TreeRow> Forest(IList<ProcInfo> procs, ICollection<string> collapsed, Func<ProcInfo, bool> show, Func<ProcInfo, double> order)
+        {
+            var byPid = new Dictionary<int, ProcInfo>(); foreach (var p in procs) byPid[p.Pid] = p;
+            var kids = new Dictionary<int, List<ProcInfo>>(); var roots = new List<ProcInfo>();
+            foreach (var p in procs)
+            {
+                ProcInfo par;
+                if (p.Pid != 0 && p.ParentPid != p.Pid && byPid.TryGetValue(p.ParentPid, out par) && par.CreateTime <= p.CreateTime && par.Pid != 0)
+                { List<ProcInfo> l; if (!kids.TryGetValue(par.Pid, out l)) kids[par.Pid] = l = new List<ProcInfo>(); l.Add(p); }
+                else roots.Add(p);
+            }
+            var keep = new HashSet<int>();
+            Func<ProcInfo, int, bool> mark = null;
+            mark = (p, depth) =>
+            {
+                bool any = show == null || show(p); List<ProcInfo> l;
+                if (depth < 64 && kids.TryGetValue(p.Pid, out l)) foreach (var c in l) if (mark(c, depth + 1)) any = true;
+                if (any) keep.Add(p.Pid); return any;
+            };
+            foreach (var r in roots) mark(r, 0);
+            var rows = new List<TreeRow>(); var seen = new HashSet<int>();
+            Action<ProcInfo, int> walk = null;
+            walk = (p, depth) =>
+            {
+                if (!keep.Contains(p.Pid) || !seen.Add(p.Pid)) return;
+                List<ProcInfo> l; bool has = kids.TryGetValue(p.Pid, out l) && l.Any(c => keep.Contains(c.Pid));
+                rows.Add(new TreeRow { Proc = p, Depth = depth, HasChildren = has });
+                if (has && (collapsed == null || !collapsed.Contains(p.Key)) && depth < 64) foreach (var c in l.OrderByDescending(order).ThenBy(c => c.Pid)) walk(c, depth + 1);
+            };
+            foreach (var r in roots.Where(r => r.Pid != 0).OrderBy(r => r.Pid == 4 ? 0 : 1).ThenByDescending(order).ThenBy(r => r.Pid)) walk(r, 0);
+            return rows;
+        }
+
         // the list order: column + direction; ties by name
         public static List<AppGroup> Sort(IEnumerable<AppGroup> groups, string column, bool descending)
         {
@@ -238,7 +277,7 @@ namespace HallowTasks
                 case "gpu": f = g => g.Gpu; break;
                 case "gpumem": f = g => g.GpuMem; break;
                 case "disk": f = g => g.DiskRead + g.DiskWrite; break;
-                case "net": f = g => g.Conns; break;
+                case "net": f = g => g.NetBytes >= 0 ? g.NetBytes : g.Conns; break;
                 case "power": f = g => ImpactCalc.PowerValue(g.Cpu, g.Gpu, g.DiskRead + g.DiskWrite); break;
                 case "name": return (descending ? groups.OrderByDescending(g => g.Title, StringComparer.CurrentCultureIgnoreCase) : groups.OrderBy(g => g.Title, StringComparer.CurrentCultureIgnoreCase)).ToList();
                 case "publisher": return (descending ? groups.OrderByDescending(g => g.Publisher ?? "", StringComparer.CurrentCultureIgnoreCase) : groups.OrderBy(g => g.Publisher ?? "\uffff", StringComparer.CurrentCultureIgnoreCase)).ThenBy(g => g.Title).ToList();
@@ -387,6 +426,8 @@ namespace HallowTasks
         string Kill(int pid);
         string SetAffinity(int pid, long mask);
         long Affinity(int pid);
+        string SetEfficiency(int pid, bool on);        // Efficiency mode: EcoQoS (power throttling) + Idle priority, like Windows 11 Task Manager
+        bool? GetEfficiency(int pid);                  // null = can't tell
         long CreateTime(int pid);                      // 0 = gone
     }
     // lowers priorities while the game runs and puts them back afterwards (or when you click Restore / quit Hallow Tasks)
@@ -423,6 +464,33 @@ namespace HallowTasks
             return ct != 0 && ct == e.Created && ctl.SetPriority(e.Pid, e.Was) == null;
         }
         public static string Word(Prio p) { return p == Prio.BelowNormal ? "Below normal" : p == Prio.AboveNormal ? "Above normal" : p.ToString(); }
+    }
+
+    // Efficiency mode, like Windows 11 Task Manager's: EcoQoS (SetProcessInformation ProcessPowerThrottling, execution speed) plus
+    // Idle priority. It stays until you turn it off or the program closes (like Windows'); off puts its priority back.
+    public class EcoKeeper
+    {
+        public class Entry { public int Pid; public long Created; public string Name; public Prio Was; }
+        readonly IProcessControl ctl; public readonly List<Entry> On = new List<Entry>();
+        public EcoKeeper(IProcessControl c) { ctl = c; }
+        public string Set(ProcInfo p, bool on)
+        {
+            var old = On.FirstOrDefault(x => x.Pid == p.Pid && x.Created == p.CreateTime);
+            if (on)
+            {
+                var was = ctl.GetPriority(p.Pid); if (was == null) return "Windows won't let Hallow Tasks change " + p.Name + " (it may belong to another user or be protected).";
+                var e = ctl.SetEfficiency(p.Pid, true); if (e != null) return e;
+                if (old == null) On.Add(new Entry { Pid = p.Pid, Created = p.CreateTime, Name = p.Name, Was = was.Value == Prio.Idle ? Prio.Normal : was.Value });
+                return null;
+            }
+            var err = ctl.SetEfficiency(p.Pid, false);
+            if (err == null) ctl.SetPriority(p.Pid, old != null ? old.Was : Prio.Normal);
+            On.RemoveAll(x => x.Pid == p.Pid);
+            return err;
+        }
+        public bool IsOn(ProcInfo p) { return On.Any(x => x.Pid == p.Pid && x.Created == p.CreateTime) || ctl.GetEfficiency(p.Pid) == true; }
+        public void Forget(Func<int, long> createTime) { On.RemoveAll(x => createTime(x.Pid) != x.Created); }
+        public const string What = "Efficiency mode does what Windows 11 Task Manager's Efficiency mode does: Windows' EcoQoS (power throttling - it runs on the slower, cooler cores at lower clocks) plus Idle priority. It stays on until you turn it off or the app closes.";
     }
 
     // ---------------- the startup impact estimate (Hallow Toolkit's rule: RAM and CPU time per hour now, plus Windows' "slowed down startup" events)

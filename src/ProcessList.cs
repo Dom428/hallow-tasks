@@ -18,6 +18,7 @@ namespace HallowTasks
         public event PropertyChangedEventHandler PropertyChanged;
         readonly Dictionary<string, object> v = new Dictionary<string, object>();
         public string Key; public AppGroup Group; public ProcInfo Proc;   // Proc = a child row (one process of a group)
+        public bool Tree, TreeHas;                                         // a tree-view row, and whether it has children
         object G(string n) { object o; return v.TryGetValue(n, out o) ? o : null; }
         public void Set(string n, object value)
         {
@@ -64,7 +65,7 @@ namespace HallowTasks
         // id, header, width (the name column takes the rest), right-aligned
         public static readonly string[][] Cols = {
             new[] { "cpu", "CPU", "62" }, new[] { "ram", "Memory", "80" }, new[] { "gpu", "GPU", "58" }, new[] { "gpumem", "GPU mem", "76" },
-            new[] { "disk", "Disk", "80" }, new[] { "net", "Network", "72" }, new[] { "power", "Power", "80" }, new[] { "publisher", "Publisher", "150" }, new[] { "path", "Path", "200" } };
+            new[] { "disk", "Disk", "80" }, new[] { "net", "Network", "84" }, new[] { "power", "Power", "80" }, new[] { "publisher", "Publisher", "150" }, new[] { "path", "Path", "200" } };
         const string Ns = "xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\" xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\"";
         public static string ColDefs()
         {

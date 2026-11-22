@@ -23,6 +23,8 @@ namespace HallowTasks
             { "Below normal", "arrow-down" }, { "Idle", "feather" }, { "Restore", "rotate-left" }, { "Disable", "ban" }, { "Refresh", "arrows-rotate" }, { "Loading...", "arrows-rotate" },
             { "Open Startup apps", "gear" }, { "Check for updates", "arrows-rotate" }, { "Open data folder", "folder-open" }, { "Show details", "eye" }, { "Open folder", "folder-open" }, { "OK", "check" },
             { "Set", "check" }, { "Save", "check" }, { "Update", "download" },
+            { "Efficiency mode", "leaf" }, { "Efficiency off", "leaf" }, { "Efficiency", "leaf" }, { "End tree", "skull-crossbones" }, { "Start", "circle-play" }, { "Stop", "circle-stop" }, { "Restart", "arrows-rotate" },
+            { "Start (admin)", "user-shield" }, { "Stop (admin)", "user-shield" }, { "Restart (admin)", "user-shield" }, { "Ask Windows", "user-shield" },
         };
         static readonly string[][] Prefixes = { new[] { "Update to", "download" } };
         public static string ForLabel(string label)

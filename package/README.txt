@@ -1,6 +1,7 @@
 HALLOW TASKS - a better Task Manager, Hallow style
 
-See what's using your PC, grouped by app, and what's slowing your game. No admin needed.
+See what's using your PC, grouped by app, what's slowing your game, and what spiked your PC.
+No admin needed for normal use.
 
 HOW TO INSTALL
 1. Right-click the zip > Properties > tick "Unblock" > OK
@@ -22,17 +23,37 @@ WHAT IT DOES
   BattlEye, Vanguard and others) are never touched: "Anti-cheat - leave alone".
 - Performance: live graphs for CPU (or one per core), GPU (3D, video encode / decode, copy),
   memory, GPU memory, disk and network.
+- History - what spiked my PC: a rolling hour of each app's CPU, GPU, RAM and disk, a timeline,
+  and which apps spiked and when. While you play it marks the stutter moments (from Hallow
+  Overlay's live numbers when it runs, otherwise CPU / GPU peaks) and what else was busy then.
+  An optional 24-hour log on disk (off by default, about 1 MB at most).
+- Efficiency mode, like Windows 11 Task Manager's (EcoQoS + Idle priority), in one click from
+  the game panel or the right-click menu. Never for Windows, your game or anti-cheat.
+- Services: status, startup type, PID and description. Start / stop / restart where Windows
+  lets you; otherwise "(admin)" - Windows asks you (UAC) first. Microsoft's own: leave alone.
+- Process tree view (parent -> children) with End tree.
+- Quiet alerts while you play (off by default): a note through Hallow Hub when a background app
+  takes more than X% CPU or GPU for more than N seconds - never a pop-up over the game.
+- Precise network (optional, needs admin): bytes per second per app, through a small helper
+  that Windows asks you about (UAC) each time; it stops when Hallow Tasks closes.
+- Light and dark mode: follows Hallow Toolkit's setting, or pick one in Settings > Look.
 - Startup apps with an impact estimate. Your own startup entries can be disabled and restored.
 - Hallow family: Hallow Hub's tray menu lists it, the Hallow accent colour, status for other apps.
 - Ctrl+Alt+T opens it (off until you turn it on in Settings). Ctrl+Shift+Esc stays Windows' own.
 
 GOOD TO KNOW
-- It samples once a second only while its window is open (not minimized). In the tray it does
-  nothing but wait.
-- Per-process network speed needs admin (Windows only gives it to ETW), so the Network column
-  counts each app's connections; the Performance tab shows the PC's total network speed.
+- It samples once a second while its window is open; in the tray, a sample every 5 s for
+  History (well under 1% CPU - Settings can turn that off).
+- Per-process network speed needs admin (Windows only gives it to ETW): without "Precise
+  network" the Network column counts each app's connections.
 - CPU temperature needs a kernel driver, so it isn't shown (same as Hallow Overlay).
 - Nothing is sent anywhere. Crash reports stay on this PC.
+
+WHAT'S NEW IN 1.1
+- Light and dark mode (Follow Hallow / Light / Dark).
+- History: what spiked my PC, with a timeline and the stutter moments while you play.
+- Efficiency mode (like Windows 11's), a Services tab, a process tree view with End tree,
+  quiet in-game alerts (off by default) and optional precise network (needs admin).
 
 WHAT'S NEW IN 1.0
 - The first version: processes by app, What's slowing my game, Performance, Startup apps,

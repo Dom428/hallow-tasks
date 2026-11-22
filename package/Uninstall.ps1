@@ -4,7 +4,7 @@ Add-Type -AssemblyName System.Windows.Forms
 if ([System.Windows.Forms.MessageBox]::Show("Uninstall Hallow Tasks?", 'Uninstall Hallow Tasks', 'YesNo', 'Question') -ne 'Yes') { return }
 # quit through the family pipe first, so apps it lowered for a game get their priority back
 if (Get-Process HallowTasks -ErrorAction SilentlyContinue) { try { & (Join-Path $dest "HallowTasks.exe") --cmd quit | Out-Null; Start-Sleep -Milliseconds 1500 } catch { } }
-Get-Process HallowTasks -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-Process HallowTasks -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue   # (the elevated precise-network helper, if any, ends by itself with Tasks)
 Start-Sleep -Milliseconds 600
 Remove-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'HallowTasks' -ErrorAction SilentlyContinue
 foreach ($dir in [Environment]::GetFolderPath('Programs'), [Environment]::GetFolderPath('Desktop')) { Remove-Item (Join-Path $dir 'Hallow Tasks.lnk') -ErrorAction SilentlyContinue }

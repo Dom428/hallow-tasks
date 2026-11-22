@@ -19,14 +19,14 @@ using WF = System.Windows.Forms;
 [assembly: AssemblyTitle("Hallow Tasks")]
 [assembly: AssemblyProduct("Hallow Tasks")]
 [assembly: AssemblyDescription("A better Task Manager, Hallow style")]
-[assembly: AssemblyVersion("1.0.0.0")]
-[assembly: AssemblyFileVersion("1.0.0.0")]
+[assembly: AssemblyVersion("1.1.0.0")]
+[assembly: AssemblyFileVersion("1.1.0.0")]
 
 namespace HallowTasks
 {
     public static class Program
     {
-        public const string Version = "1.0";
+        public const string Version = "1.1";
         [DllImport("user32.dll")] static extern bool SetProcessDpiAwarenessContext(IntPtr v);
 
         [STAThread]
@@ -34,6 +34,9 @@ namespace HallowTasks
         {
             int ci = Array.IndexOf(args, "--cmd");
             if (ci >= 0) { Environment.Exit(Family.RunCmd(ci + 1 < args.Length ? args[ci + 1] : "")); return; }
+            // the two elevated helpers (Windows asks you with UAC before either runs): a service action, and the precise network trace
+            int vi = Array.IndexOf(args, "--svc"); if (vi >= 0) { Environment.Exit(WindowsServices.RunHelper(args, vi + 1)); return; }
+            int ni = Array.IndexOf(args, "--netetw"); if (ni >= 0) { Environment.Exit(ni + 2 < args.Length ? NetHelper.Run(args[ni + 1], args[ni + 2]) : 2); return; }
             try { SetProcessDpiAwarenessContext(new IntPtr(-4)); } catch { }
             int si = Array.IndexOf(args, "--snap");
             if (si >= 0 && si + 1 < args.Length)
@@ -56,45 +59,62 @@ namespace HallowTasks
             GC.KeepAlive(mutex);
         }
         public static string AccentHex = Accent.Default;
-        // the family console look: dark purple-black, the Hallow accent (theme.json) swapped in, lilac secondaries. Every colour is a
-        // theme resource (Theme.xaml), so a light mode later is a second dictionary.
-        public static void LoadTheme(Application app)
+        public static bool Light; public static bool? ForceLight;   // ForceLight: --snap renders both
+        // the family console look: dark purple-black (or the family light palette - Look.cs), the Hallow accent (theme.json) swapped
+        // in, lilac secondaries. Every colour is a theme resource (Theme.xaml).
+        public static void LoadTheme(Application app, TaskSettings st = null)
         {
-            var st = TaskSettings.Load();
+            if (st == null) st = TaskSettings.Load();
             AccentHex = Accent.Current(st.UseHallowAccent);
+            Light = ForceLight ?? Look.Current(st);
+            var x = Res("HallowTasks.Theme.xaml"); if (Light) x = Look.ToLight(x);
             app.Resources.MergedDictionaries.Clear();
-            app.Resources.MergedDictionaries.Add((ResourceDictionary)XamlReader.Parse(Accent.ApplyTo(Res("HallowTasks.Theme.xaml"), Ui.Readable(AccentHex))));
+            app.Resources.MergedDictionaries.Add((ResourceDictionary)XamlReader.Parse(Accent.ApplyTo(x, Light ? Look.DarkAccent(AccentHex) : Ui.Readable(AccentHex))));
         }
         static string Res(string name) { using (var s = Assembly.GetExecutingAssembly().GetManifestResourceStream(name)) using (var r = new StreamReader(s)) return r.ReadToEnd(); }
 
-        // --snap <folder>: every page rendered off-screen with made-up processes (never this PC's real ones)
+        // --snap <folder>: every page rendered off-screen with made-up processes (never this PC's real ones), dark and light ("-light")
         static void SnapAll(string dir)
         {
+            foreach (var light in new[] { false, true }) { ForceLight = light; LoadTheme(Application.Current); SnapPass(dir, light ? "-light" : ""); }
+        }
+        static void SnapPass(string dir, string sfx)
+        {
+            Func<string, string> F = n => Path.Combine(dir, n + sfx + ".png");
             var c = new Controller(true, true); Ui.RealIcons = c.RealSnap;
             for (int i = 0; i < 60; i++) { c.SampleNow(); if (c.RealSnap && i < 3) Thread.Sleep(1000); else if (c.RealSnap) break; }   // a little history for the graphs and the game panel
+            if (!c.RealSnap) FakeHistory.Fill(c.Hist, DateTime.Now);
+            c.RefreshServices();
             var w = new MainWindow(c);
-            foreach (var page in new[] { "processes", "game", "performance", "startup", "settings" })
-            { w.Show(page); w.Refresh(); Snap.Save(w, Path.Combine(dir, page + ".png"), 1300, 800); }
+            foreach (var page in MainWindow.Pages.Select(p => p[0]))
+            { w.Show(page); w.Refresh(); Snap.Save(w, F(page), 1300, 800); }
             // the processes list with Discord open and selected (the details strip), searched, and filtered
-            w.Show("processes"); w.SnapSelect("discord", true); w.Refresh(); Snap.Save(w, Path.Combine(dir, "processes-details.png"), 1300, 800);
-            w.SnapSearch("chrome"); w.Refresh(); Snap.Save(w, Path.Combine(dir, "processes-search.png"), 1300, 800); w.SnapSearch("");
-            w.SnapFilter("Hallow"); w.Refresh(); Snap.Save(w, Path.Combine(dir, "processes-hallow.png"), 1300, 800); w.SnapFilter("All");
-            w.SnapSelect("exe:sguard64", false); w.Refresh(); Snap.Save(w, Path.Combine(dir, "processes-anticheat.png"), 1300, 800);
-            // the game panel after lowering Wallpaper Engine
+            w.Show("processes"); w.SnapSelect("discord", true); w.Refresh(); Snap.Save(w, F("processes-details"), 1300, 800);
+            w.SnapSearch("chrome"); w.Refresh(); Snap.Save(w, F("processes-search"), 1300, 800); w.SnapSearch("");
+            w.SnapFilter("Hallow"); w.Refresh(); Snap.Save(w, F("processes-hallow"), 1300, 800); w.SnapFilter("All");
+            w.SnapSelect("exe:sguard64", false); w.Refresh(); Snap.Save(w, F("processes-anticheat"), 1300, 800);
+            // the tree view with Discord selected
+            c.S.TreeView = true; w.Show("processes"); w.SnapSelect("discord", false); w.Refresh(); Snap.Save(w, F("processes-tree"), 1300, 800); c.S.TreeView = false;
+            // precise network on (made-up numbers)
+            c.Net.FakeOn(); c.Net.Feed("net 1000 4300:12000:2400000 4310:3000:150000 4100:9000:60000 4500:1000:820000 4700:2400000:30000 7000:40000:350000"); c.SampleNow();
+            w.Show("processes"); w.Refresh(); Snap.Save(w, F("processes-network"), 1300, 800); c.Net.Stop(); c.SampleNow();
+            // the game panel after lowering Wallpaper Engine and putting OBS in Efficiency mode
             var wp = c.Groups.FirstOrDefault(g => g.Key == "wallpaper"); if (wp != null) c.LowerGroup(wp, Prio.BelowNormal);
-            w.Show("game"); w.Refresh(); Snap.Save(w, Path.Combine(dir, "game-lowered.png"), 1300, 800);
-            c.S.PerCore = true; w.Show("performance"); w.Refresh(); Snap.Save(w, Path.Combine(dir, "performance-cores.png"), 1300, 800); c.S.PerCore = false;
+            var obs = c.Groups.FirstOrDefault(g => g.Key == "obs"); if (obs != null) c.SetEfficiency(obs, true);
+            w.Show("game"); w.Refresh(); Snap.Save(w, F("game-lowered"), 1300, 800);
+            c.S.PerCore = true; w.Show("performance"); w.Refresh(); Snap.Save(w, F("performance-cores"), 1300, 800); c.S.PerCore = false;
+            w.Show("services"); w.SnapServices("Steam Client Service"); w.Refresh(); Snap.Save(w, F("services-selected"), 1300, 800); w.SnapServices(null);
             // no game running
-            c.SnapGame(false); for (int i = 0; i < 3; i++) c.SampleNow(); w.Show("game"); w.Refresh(); Snap.Save(w, Path.Combine(dir, "game-none.png"), 1300, 800);
+            c.SnapGame(false); for (int i = 0; i < 3; i++) c.SampleNow(); w.Show("game"); w.Refresh(); Snap.Save(w, F("game-none"), 1300, 800);
             // the dialogs
-            Snap.Save(Dialogs.ConfirmWindow("End Discord?", "Discord has 4 processes. Anything unsaved in it is lost.", "End task", true, null), Path.Combine(dir, "dialog-end.png"), 460, 0);
-            Snap.Save(Dialogs.PriorityWindow("Discord.exe", Prio.Normal, null), Path.Combine(dir, "dialog-priority.png"), 420, 0);
-            Snap.Save(Dialogs.AffinityWindow("obs64.exe", 16, 0xFFFF, null), Path.Combine(dir, "dialog-affinity.png"), 460, 0);
-            Snap.Save(Dialogs.InfoWindow("Hallow Tasks", Safety.WhyNot(new ProcInfo { Name = "SGuard64.exe", Pid = 5044 }, null, null, @"C:\Windows", 1), null), Path.Combine(dir, "dialog-refused.png"), 460, 0);
-            Snap.Save(CrashNotice.Make(Path.Combine(dir, "example.txt")), Path.Combine(dir, "crash.png"), 440, 0);
+            Snap.Save(Dialogs.ConfirmWindow("End Discord?", "Discord has 4 processes. Anything unsaved in it is lost.", "End task", true, null), F("dialog-end"), 460, 0);
+            Snap.Save(Dialogs.PriorityWindow("Discord.exe", Prio.Normal, null), F("dialog-priority"), 420, 0);
+            Snap.Save(Dialogs.AffinityWindow("obs64.exe", 16, 0xFFFF, null), F("dialog-affinity"), 460, 0);
+            Snap.Save(Dialogs.InfoWindow("Hallow Tasks", Safety.WhyNot(new ProcInfo { Name = "SGuard64.exe", Pid = 5044 }, null, null, @"C:\Windows", 1), null), F("dialog-refused"), 460, 0);
+            Snap.Save(Dialogs.ConfirmWindow("Stop Print Spooler?", "This needs admin: Windows will ask you first (UAC). Programs that use it may stop working until it runs again.", "Stop (admin)", false, null), F("dialog-service-admin"), 460, 0);
+            Snap.Save(CrashNotice.Make(Path.Combine(dir, "example.txt")), F("crash"), 440, 0);
         }
     }
-
     // the app: tray icon, family pipe, sampling, the game watch, actions, updates
     public class Controller
     {
@@ -104,6 +124,9 @@ namespace HallowTasks
         MainWindow main; WF.NotifyIcon tray; bool hubHosts, hubLists, quitting, balloonOwn;
         readonly ISampler sampler; readonly object sampleLock = new object();
         public readonly IProcessControl Ctl; public readonly PriorityKeeper Keeper; public readonly GameWatch Watch = new GameWatch();
+        public readonly EcoKeeper Eco; public readonly HistoryStore Hist = new HistoryStore(); public HistoryLog HistLog; readonly AlertWatch alerts = new AlertWatch();
+        public readonly NetPrecise Net = new NetPrecise(); public readonly IServiceSource Services;
+        public readonly List<string[]> Notes = new List<string[]>();   // the quiet in-game alerts of this session: time, title, text
         public readonly StartupStore Store; readonly IStartupSource startupSrc;
         readonly List<string> log = new List<string>();
         public readonly int SelfPid = Process.GetCurrentProcess().Id;
@@ -115,7 +138,7 @@ namespace HallowTasks
         public readonly Dictionary<string, Ring> History = new Dictionary<string, Ring>();
         public double SampleMs; public double OwnCpu;
         public event Action Sampled;
-        DispatcherTimer sampleTimer, idleTimer; FileSystemWatcher accentWatch; Hotkey hotkey;
+        DispatcherTimer sampleTimer, idleTimer, bgTimer, lookTimer; FileSystemWatcher accentWatch; Hotkey hotkey;
 
         public Controller(bool trayOnly, bool snapMode = false)
         {
@@ -125,7 +148,8 @@ namespace HallowTasks
             bool real = snapMode && TaskSettings.TestDir != null && Environment.GetEnvironmentVariable("HALLOW_TASKS_SNAPREAL") == "1";
             sampler = fake && !real ? (ISampler)new FakeSampler() : new WindowsSampler();
             Ctl = fake ? (IProcessControl)new FakeControl() : new WindowsControl();
-            Keeper = new PriorityKeeper(Ctl);
+            Keeper = new PriorityKeeper(Ctl); Eco = new EcoKeeper(Ctl);
+            Services = fake ? (IServiceSource)new FakeServices() : new WindowsServices();
             Store = TaskSettings.TestDir != null || snapMode ? StartupStore.ForTest(@"Software\HallowTasks\Test-" + (TaskSettings.TestDir == null ? "snap" : Path.GetFileName(TaskSettings.TestDir.TrimEnd('\\')))) : StartupStore.Real();
             startupSrc = fake ? (IStartupSource)new FakeStartup() : new WindowsStartup(Store.RunPath);
             if (snapMode) return;
@@ -133,11 +157,16 @@ namespace HallowTasks
             sampleTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) }; sampleTimer.Tick += (s, e) => SampleAsync();
             // while the window is closed or minimized: only a cheap check every 5 s - is the game still running? (to put lowered priorities back)
             idleTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) }; idleTimer.Tick += (s, e) => IdleTick(); idleTimer.Start();
+            // History / alerts while the window is closed: a sample every 5 s (Settings can turn it off; the window samples once a second)
+            bgTimer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromSeconds(5) }; bgTimer.Tick += (s, e) => { if (!Active && (S.HistoryInTray || S.Alerts)) SampleAsync(); }; bgTimer.Start();
+            if (S.HistoryLog) OpenLog();
             if (!TaskSettings.Headless)
             {
                 SetupTray();
                 var ht = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) }; ht.Tick += (s, e) => CheckHost(); ht.Start(); CheckHost();
                 accentWatch = Accent.Watch(() => ui.BeginInvoke(new Action(ApplyAccent)));
+                // light / dark: theme.json's mode (the watcher above), "Same as Windows" and a Hallow folder made later - a cheap check every 5 s while the window is open
+                lookTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) }; lookTimer.Tick += (s, e) => { if (main != null) ApplyAccent(); }; lookTimer.Start();
                 if (TaskSettings.TestDir == null || Environment.GetEnvironmentVariable("HALLOW_TASKS_API") != null)
                 {
                     var upd = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
@@ -180,6 +209,7 @@ namespace HallowTasks
         {
             Last = s; SampleMs = s.SampleMs;
             ReadHub();
+            if (Net.On) Net.Apply(s.Procs);
             if (TaskSettings.Fake || SnapMode) { var fc = Ctl as FakeControl; if (fc != null) foreach (var p in s.Procs) fc.Created[p.Pid] = p.CreateTime; }
             Groups = Grouping.Build(s.Procs, sampler.WindowsDir, ExtraGames);
             var self = s.Procs.FirstOrDefault(p => p.Pid == SelfPid); OwnCpu = self == null ? 0 : self.Cpu;
@@ -187,14 +217,44 @@ namespace HallowTasks
             SetGame(game);
             Watch.Push(Groups, game, s.At);
             Push(s.Sys);
+            // History: the point, Overlay's live numbers while you play, the 24-hour log, the quiet alerts
+            var hp = Hist.Add(s, Groups, game, GameTitle);
+            if (game != null && !SnapMode && !TaskSettings.Fake && (s.At - overlayAt).TotalSeconds >= 1.9)
+            {
+                overlayAt = s.At; var o = HistoryStore.ReadOverlay(Family.DataDir("Overlay"));
+                if (o != null) Hist.OverlayLive(s.At, o[0], o[1], (long)o[2]);
+            }
+            if (HistLog != null) HistLog.Push(hp);
+            if (S.Alerts) foreach (var m in alerts.Check(Groups, game, s.At, S.AlertCpu, S.AlertGpu, S.AlertSeconds, SelfPid)) QuietNote(m[0], m[1]);
+            if (Eco.On.Count > 0) Eco.On.RemoveAll(x => !s.Procs.Any(p => p.Pid == x.Pid && p.CreateTime == x.Created));
             var h = Sampled; if (h != null) h();
+        }
+        DateTime overlayAt = DateTime.MinValue;
+        public void OpenLog()
+        {
+            if (SnapMode) return;
+            HistLog = new HistoryLog(Path.Combine(TaskSettings.Dir, "history-24h.jsonl"));
+            var l = HistLog; new Thread(() => l.Trim()) { IsBackground = true, Priority = ThreadPriority.BelowNormal }.Start();
+        }
+        public void SetHistoryLog(bool on)
+        {
+            S.HistoryLog = on; S.Save();
+            if (on && HistLog == null) OpenLog(); else if (!on && HistLog != null) { HistLog.Flush(); HistLog = null; }
+        }
+        // a quiet note while you play: only through Hallow Hub's notify (Hub shows it from its icon) - never a pop-up of Tasks' own over the game
+        public void QuietNote(string title, string text)
+        {
+            lock (Notes) { Notes.Add(new[] { DateTime.Now.ToString("HH:mm:ss"), title, text }); if (Notes.Count > 50) Notes.RemoveAt(0); }
+            Notifications++; Log("alert: " + title);
+            if (TaskSettings.TestDir != null || SnapMode) return;
+            ThreadPool.QueueUserWorkItem(_ => { try { Family.Send("Hub", "notify Tasks\t" + title + "\t" + text, 2000); } catch { } });
         }
         void SetGame(ProcInfo game)
         {
             bool was = Game != null;
             Game = game; GameTitle = GameDetect.Title(game, HubPlaying);
             if (game != null && !was) { GameSince = DateTime.Now; Log("game: " + game.Name); }
-            if (game == null && was) { GameSince = null; Log("game closed"); GameEnded(); }
+            if (game == null && was) { GameSince = null; Log("game closed"); GameEnded(); Hist.GameEnded(); }
         }
         void GameEnded()
         {
@@ -234,7 +294,7 @@ namespace HallowTasks
         public void ShowMain(string page)
         {
             if (TaskSettings.Headless || SnapMode) return;
-            if (main == null) main = new MainWindow(this);
+            if (main == null) { ApplyAccent(); main = new MainWindow(this); }
             if (page != null) main.Show(page);
             main.Show(); if (main.WindowState == WindowState.Minimized) main.WindowState = WindowState.Normal; main.Activate();
         }
@@ -247,6 +307,8 @@ namespace HallowTasks
         {
             if (quitting) return; quitting = true;
             try { if (Keeper.Lowered.Count > 0) Log("quit: " + Keeper.RestoreAll() + " priorities put back"); } catch { }
+            try { Net.Stop(); } catch { }
+            try { if (HistLog != null) HistLog.Flush(); } catch { }
             if (hotkey != null) hotkey.Dispose();
             if (tray != null) { tray.Visible = false; tray.Dispose(); }
             WriteStatus(false);
@@ -317,6 +379,83 @@ namespace HallowTasks
             Log("lower " + g.Title + " -> " + to + ": " + n + " ok, " + errs.Count + " refused");
             return n == 0 && errs.Count > 0 ? errs[0] : null;
         }
+        // Efficiency mode (Windows 11 Task Manager's: EcoQoS + Idle priority) - one process, or every process of an app
+        public string SetEfficiency(ProcInfo p, bool on)
+        {
+            var why = WhyNot(p); if (why != null) return why;
+            if (!Same(p)) return p.Name + " has already closed.";
+            var e = Eco.Set(p, on); Log("efficiency " + p.Name + " " + (on ? "on" : "off") + ": " + (e ?? "ok"));
+            if (e == null) Keeper.Lowered.RemoveAll(x => x.Pid == p.Pid);
+            return e;
+        }
+        public string SetEfficiency(AppGroup g, bool on)
+        {
+            var why = WhyNot(g); if (why != null) return why;
+            var errs = new List<string>(); int n = 0;
+            foreach (var m in g.Members.Where(x => x.Pid != SelfPid)) { if (!Same(m)) continue; var e = Eco.Set(m, on); if (e == null) { n++; Keeper.Lowered.RemoveAll(x => x.Pid == m.Pid); } else errs.Add(e); }
+            Log("efficiency " + g.Title + " " + (on ? "on" : "off") + ": " + n + " ok, " + errs.Count + " refused");
+            return n == 0 && errs.Count > 0 ? errs[0] : null;
+        }
+        public bool EcoOn(AppGroup g) { return g.Members.Any(m => Eco.On.Any(x => x.Pid == m.Pid && x.Created == m.CreateTime)); }
+        public bool EcoOn(ProcInfo p) { return Eco.On.Any(x => x.Pid == p.Pid && x.Created == p.CreateTime); }
+
+        // ---------------- services
+        public List<ServiceInfo> ServiceList; public bool ServicesReading; public event Action ServicesChanged; public string ServiceBusy;
+        public void RefreshServices()
+        {
+            if (ServicesReading) return; ServicesReading = true;
+            Action work = () =>
+            {
+                List<ServiceInfo> l; try { l = Services.List(); } catch { l = new List<ServiceInfo>(); }
+                Action fin = () => { ServiceList = l; ServicesReading = false; var h = ServicesChanged; if (h != null) h(); };
+                if (SnapMode) fin(); else ui.BeginInvoke(fin);
+            };
+            if (SnapMode) work(); else new Thread(() => work()) { IsBackground = true, Name = "services", Priority = ThreadPriority.BelowNormal }.Start();
+        }
+        public string WhyNotService(ServiceInfo s)
+        {
+            if (s.Microsoft && !S.ControlMicrosoftServices) return "It's one of Windows' own services - Hallow Tasks leaves those alone (Settings can change that).";
+            string exe = ""; try { exe = System.IO.Path.GetFileName((s.Program ?? "").Trim('"').Split('"')[0].Split(new[] { ".exe " }, StringSplitOptions.None)[0]); } catch { }
+            if (Known.IsAntiCheat(exe) || Known.IsAntiCheat(s.Name)) return "That's anti-cheat's service - leave it alone, games react when it's touched.";
+            return null;
+        }
+        // op = start / stop / restart. Without the rights: the elevated helper (UAC) - never in tests
+        public void ControlService(ServiceInfo s, string op, Action<string> done)
+        {
+            var why = WhyNotService(s); if (why != null) { done(why); return; }
+            if (ServiceBusy != null) { done("Still working on " + ServiceBusy + "."); return; }
+            ServiceBusy = s.Display ?? s.Name; Log("service " + op + " " + s.Name);
+            Action work = () =>
+            {
+                var e = ControlServiceNow(s, op);
+                Action fin = () => { ServiceBusy = null; Log("service " + op + " " + s.Name + ": " + (e ?? "ok")); done(e); RefreshServices(); };
+                if (SnapMode) fin(); else ui.BeginInvoke(fin);
+            };
+            if (SnapMode) work(); else new Thread(() => work()) { IsBackground = true, Name = "service " + op }.Start();
+        }
+
+        public string ControlServiceNow(ServiceInfo s, string op)
+        {
+            var why = WhyNotService(s); if (why != null) return why;
+            string e;
+            try { e = op == "start" ? Services.Start(s.Name) : op == "stop" ? Services.Stop(s.Name) : Services.Restart(s.Name); } catch (Exception x) { e = x.Message; }
+            if (e == "needs admin")
+            {
+                if (TaskSettings.TestDir != null || SnapMode) e = "needs admin (the test copy never asks Windows for it)";
+                else e = WindowsServices.Elevated(op, s.Name);
+            }
+            return e;
+        }
+
+        // ---------------- precise network (the elevated ETW helper; UAC every time you switch it on, stops when Tasks closes)
+        public void SetPreciseNetwork(bool on, Action<string> done)
+        {
+            if (!on) { Net.Stop(); Log("precise network off"); done(null); return; }
+            if (TaskSettings.TestDir != null || SnapMode) { if (TaskSettings.Fake || SnapMode) { Net.FakeOn(); done(null); } else done("The test copy never asks Windows for admin."); return; }
+            Log("precise network: asking Windows (UAC)");
+            Net.Start(e => ui.BeginInvoke(new Action(() => { Log("precise network: " + (e ?? "on")); done(e); })));
+        }
+
         public void RestoreGroup(string name)
         {
             foreach (var e in Keeper.Lowered.Where(x => x.Name == name).ToList()) Keeper.Restore(e.Pid);
@@ -497,12 +636,16 @@ namespace HallowTasks
                 ui.BeginInvoke(new Action(() => { balloonOwn = true; tray.Visible = true; tray.ShowBalloonTip(5000, title, text, WF.ToolTipIcon.None); var t = new DispatcherTimer { Interval = TimeSpan.FromSeconds(7) }; t.Tick += (s, e) => { t.Stop(); balloonOwn = false; SetHosted(hubHosts, hubLists); }; t.Start(); }));
             });
         }
+        // the accent and light / dark: reloaded only when one of them changed (theme.json, Settings > Look, or Windows' mode)
         public void ApplyAccent()
         {
-            var a = Accent.Current(S.UseHallowAccent); if (a == Program.AccentHex) return;
-            Program.LoadTheme(Application.Current);
-            if (main != null) main.Rebuild();
+            if (SnapMode) return;
+            var a = Accent.Current(S.UseHallowAccent); var light = Look.Current(S);
+            if (a == Program.AccentHex && light == Program.Light) return;
+            Program.LoadTheme(Application.Current, S); Log("look: " + (Program.Light ? "light" : "dark") + ", accent " + Program.AccentHex);
+            if (main != null) { main.Rebuild(); Ui.TitleBar(main); }
         }
+        public void SetLook(string look) { S.Look = look == "light" || look == "dark" ? look : "hallow"; S.Save(); ApplyAccent(); }
         GhRelease pending; public GhRelease PendingUpdate { get { return pending; } }
         public void CheckForUpdate(bool manual)
         {
@@ -560,6 +703,8 @@ namespace HallowTasks
             var game = s != null && !Active ? GameDetect.Find(s.Procs, ExtraGames, HubPlaying) : Game;
             d["game"] = game == null ? null : GameDetect.Title(game, HubPlaying); d["lowered"] = Keeper.Lowered.Count; d["sampling"] = Active;
             d["hotkey"] = S.Hotkey; d["startsWithWindows"] = StartsWithWindows();
+            d["look"] = Program.Light ? "light" : "dark"; d["history"] = Hist.Count; d["historyInTray"] = S.HistoryInTray; d["historyLog"] = S.HistoryLog; d["alerts"] = S.Alerts;
+            d["efficiency"] = Eco.On.Count; d["preciseNetwork"] = Net.On;
             d["lastCrash"] = Crash.LastTime() == null ? null : Family.Time(Crash.LastTime().Value);
             if (TaskSettings.TestDir != null) { lock (log) d["log"] = log.ToArray(); d["notifications"] = Notifications; }
             return d;
@@ -609,7 +754,9 @@ namespace HallowTasks
             return new List<object> {
                 new Dictionary<string, object> { { "id", "game" }, { "label", "What's slowing my game" } },
                 new Dictionary<string, object> { { "id", "performance" }, { "label", "Performance" } },
+                new Dictionary<string, object> { { "id", "history" }, { "label", "History - what spiked my PC" } },
                 new Dictionary<string, object> { { "id", "startup" }, { "label", "Startup apps" } },
+                new Dictionary<string, object> { { "id", "services" }, { "label", "Services" } },
                 new Dictionary<string, object> { { "id", "-" } },
                 new Dictionary<string, object> { { "id", "hotkey" }, { "label", "Ctrl+Alt+T opens Hallow Tasks" }, { "checked", S.Hotkey } } };
         }
@@ -620,6 +767,8 @@ namespace HallowTasks
                 case "game": ShowMain("game"); return "ok";
                 case "performance": ShowMain("performance"); return "ok";
                 case "startup": ShowMain("startup"); return "ok";
+                case "history": ShowMain("history"); return "ok";
+                case "services": ShowMain("services"); return "ok";
                 case "processes": ShowMain("processes"); return "ok";
                 case "hotkey": { var e = SetHotkey(!S.Hotkey); if (main != null) main.Refresh(); return e == null ? "ok" : "error " + e; }
             }
@@ -635,6 +784,10 @@ namespace HallowTasks
                 case "test-active": SetActive(arg == "on"); return "ok";
                 case "test-autostart": SetStartWithWindows(arg == "on"); return "ok " + StartsWithWindows();
                 case "test-games": SetExtraGames(arg); return "ok " + S.ExtraGames.Count;
+                case "test-look": ApplyAccent(); return "ok " + (Program.Light ? "light" : "dark");
+                case "test-setlook": SetLook(arg); return "ok " + (Program.Light ? "light" : "dark");
+                case "test-history": return "ok " + Family.Json(new Dictionary<string, object> { { "points", Hist.Count }, { "spikes", HistoryStore.FindSpikes(Hist.Points(DateTime.MinValue)).Select(x => x.Title).ToList() }, { "log", HistLog != null } });
+                case "test-historylog": SetHistoryLog(arg == "on"); if (HistLog != null) { SampleNow(); HistLog.Flush(); } return "ok " + (HistLog != null);
             }
             if (!TaskSettings.Fake) return "error unknown test command";
             var fc = (FakeControl)Ctl;
@@ -654,6 +807,30 @@ namespace HallowTasks
                     }
                 case "test-calls": return "ok " + Family.Json(fc.Calls);
                 case "test-prio": { Prio pr; return fc.Prios.TryGetValue(int.Parse(arg), out pr) ? "ok " + pr : "ok Normal"; }
+                case "test-eco":
+                    {
+                        var p = arg.Split(' '); var g = Groups.FirstOrDefault(x => x.Key == p[0] || x.Key.StartsWith(p[0] + "|")); if (g == null) return "error no group " + p[0];
+                        var e = SetEfficiency(g, p.Length < 2 || p[1] != "off"); return e == null ? "ok " + fc.Eco.Count : "error " + e;
+                    }
+                case "test-alerts":
+                    {
+                        var p = arg.Split(' '); S.Alerts = true; S.AlertCpu = int.Parse(p[0]); S.AlertGpu = int.Parse(p[1]); S.AlertSeconds = int.Parse(p[2]);   // no clamping: the test uses 1 s
+                        return "ok";
+                    }
+                case "test-notes": lock (Notes) return "ok " + Family.Json(Notes.Select(n => n[1]).ToList());
+                case "test-services": { var l = Services.List(); return "ok " + Family.Json(l.Select(x => x.Name + "|" + x.Status + "|" + (x.Microsoft ? "ms" : "3p") + "|" + (x.CanControl ? "ctl" : "admin")).ToList()); }
+                case "test-svc":
+                    {
+                        int sp2 = arg.IndexOf(' '); var op = arg.Substring(0, sp2); var name = arg.Substring(sp2 + 1);
+                        var s = Services.List().FirstOrDefault(x => x.Name == name); if (s == null) return "error no service";
+                        var r = ControlServiceNow(s, op);
+                        return r == null ? "ok " + Family.Json(((FakeServices)Services).Calls) : "error " + r;
+                    }
+                case "test-net":
+                    {
+                        Net.FakeOn(); Net.Feed(arg); SampleNow(); var g = Groups.FirstOrDefault(x => x.Key == "chrome");
+                        return "ok " + (g == null ? -2 : g.NetBytes);
+                    }
             }
             return "error unknown test command";
         }

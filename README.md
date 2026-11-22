@@ -3,8 +3,9 @@
 **A better Task Manager, Hallow style.**
 
 Part of the Hallow family of Windows apps. Hallow Tasks shows what's using your PC, grouped by app, and - while you play -
-**what's slowing your game**, with one click to lower it or end it. It never touches the game itself or anti-cheat, never ends
-anything without asking, and needs **no admin** for normal use.
+**what's slowing your game**, with one click to lower it, put it in **Efficiency mode** or end it. **History** shows what spiked
+your PC and when, with the stutter moments of your game. It never touches the game itself or anti-cheat, never ends anything
+without asking, and needs **no admin** for normal use. Light and dark mode.
 
 ![Processes grouped by app, sorted by Impact (made-up data)](docs/processes.png)
 
@@ -43,25 +44,65 @@ anything without asking, and needs **no admin** for normal use.
   doesn't install one.
 
   ![Performance (made-up data)](docs/performance.png)
+- **History - "what spiked my PC"**: a rolling hour of every app's CPU, GPU, RAM and disk in memory (a point a second while the
+  window is open, every 5 s in the tray - Settings can turn the tray part off), plus an optional **24-hour log** on disk
+  (`%APPDATA%\HallowTasks\history-24h.jsonl`, one line a minute with that minute's peaks and busiest 8 apps, capped at about
+  1 MB; off by default). A **timeline** of the PC's CPU and GPU with the game's time shaded, and a list of **what spiked**: apps
+  that took 15%+ CPU, 20%+ GPU or 20+ MB/s of disk, when, for how long and whether you were playing (your game itself isn't
+  listed - it's meant to be busy). While a game runs it marks the **stutter moments**: from **Hallow Overlay**'s live numbers
+  when Overlay runs (its status `live` - a sudden drop of the 1% low below half its usual value, or a `frameSpikes` counter if
+  Overlay offers one), otherwise from CPU / GPU peaks (the PC's CPU at 90%+, or another app suddenly taking 3x what it did the
+  minute before). Each one says what else was busy right then.
+
+  ![History (made-up data)](docs/history.png)
+- **Efficiency mode**, the same thing **Windows 11 Task Manager's Efficiency mode** does: Windows' EcoQoS
+  (`SetProcessInformation` `ProcessPowerThrottling`, execution speed - it runs on the slower, cooler cores at lower clocks) plus
+  Idle priority. No admin needed for your own apps. One click in the game panel, the details strip or the right-click menu; it
+  stays until you turn it off or the app closes (like Windows'), and turning it off puts its priority back. **Refused** for
+  Windows' own processes, your game and anti-cheat.
+- **Services**: every Windows service with its status, startup type (Automatic / delayed / trigger / Manual / Disabled), PID
+  and description; search and filter (Running, Not Microsoft). **Start / Stop / Restart** where Windows lets you; otherwise the
+  button says **(admin)** and starts a tiny elevated helper (`HallowTasks.exe --svc stop "<name>"`) - **Windows asks you (UAC)
+  first**. Microsoft's own services are marked **"Windows - leave alone"** (no buttons) unless you switch that off in Settings;
+  anti-cheat's services always are.
+
+  ![Services (made-up data)](docs/services.png)
+- **Process tree view** (the **Tree** chip on Processes): every process under the one that started it (a "parent" that
+  started later is a reused PID, so that process is a root), with **End tree**.
+- **Quiet alerts while you play** (off by default): when a background app takes more than X% CPU or GPU (default 25%) for more
+  than N seconds (default 20), a note through **Hallow Hub**'s notification - never a pop-up of Tasks' own over the game. At
+  most one per app every 10 minutes; without Hub they only appear in History.
+- **Precise network (needs admin)**, optional: Settings starts a small helper - Hallow Tasks itself with `--netetw` -
+  **elevated after Windows asks you (UAC)**. It runs one real-time ETW session on Microsoft-Windows-Kernel-Network (TCP / UDP
+  sent and received, IPv4 and IPv6) and reads only each event's process id and byte count - never addresses or contents - and
+  sends per-process bytes per second over a local pipe only you can open. The Network column then shows send + receive speed.
+  It stops when you switch it off or close Hallow Tasks, and never starts by itself.
+- **Light and dark mode** (the Hallow family spec): follows `"mode"` in `%APPDATA%\Hallow\theme.json` (dark / light / "Same as
+  Windows") live, with **Settings > Look: Follow Hallow / Light / Dark** for Tasks alone. Light uses the family palette; the
+  accent is darkened for text until it reads at 4.5:1, status text uses the text-safe green / amber / red, and Windows' title bar
+  follows.
+
+  ![Light mode (made-up data)](docs/processes-light.png)
 - **Startup apps** with an impact estimate (Hallow Toolkit's rule: RAM and CPU time per hour it uses now, plus Windows' "slowed
   down startup" events when Windows lets you read them): the Run keys (yours and all users') and the Startup folders, and whether
   Windows' Startup apps page has them switched off. **Your own** entries (HKCU Run) can be **disabled** - moved to Hallow Tasks'
   backup (`HKCU\Software\HallowTasks\DisabledStartup`), with **Restore** (like Hallow Guard). Nothing is deleted; entries for all
   users open Windows' Startup apps page.
 - **Hallow family**: the family pipe (`ping`, `status` with the top CPU / GPU users, `open [processes|game|performance|startup|
-  settings]`, `menu`, `invoke <id>`, `quit`), `HallowTasks.exe --cmd "<line>"`, `%APPDATA%\HallowTasks\status.json`, Hallow Hub's
+  settings|history|services]`, `menu`, `invoke <id>`, `quit`), `HallowTasks.exe --cmd "<line>"`, `%APPDATA%\HallowTasks\status.json`, Hallow Hub's
   tray menu (Hub 2.13+ lists any app answering `menu`; Tasks hides its own icon only when Hub lists it), the Hallow accent colour
   from `%APPDATA%\Hallow\theme.json`, crash reports kept on this PC, and the GitHub updater (checks the download's SHA-256).
 - **Ctrl+Alt+T** opens it - **off by default** (Settings). Ctrl+Shift+Esc belongs to Windows' Task Manager and can't be taken
   over safely.
-- **Low overhead**: it samples once a second **only while its window is open and not minimized** (one `NtQuerySystemInformation`
-  call for all processes, the GPU counters read in one go, about 10 ms per sample). Closed to the tray it doesn't sample at all.
+- **Low overhead**: once a second while its window is open and not minimized (one `NtQuerySystemInformation` call for all
+  processes, the GPU counters read in one go, about 10 ms per sample); every 5 s in the tray for History (or not at all, if you
+  switch that off). Measured on a 32-thread PC: **0.02% of the CPU in the tray, 0.05% with the window open**.
 
 ## Limits (no admin)
 
-- **Per-process network speed** needs admin: Windows only gives bytes per process to ETW tracing (and
-  `GetPerTcpConnectionEStats` needs admin to switch its collection on). So the Network column shows each app's **open TCP
-  connections**, and the Performance tab the PC's total send / receive speed.
+- **Per-process network speed** needs admin: Windows only gives bytes per process to ETW tracing. Without "Precise network" the
+  Network column shows each app's **open TCP connections**, and the Performance tab the PC's total send / receive speed.
+- **Services** you may not control (most of them) need admin to start or stop - that's what the (admin) buttons and UAC are for.
 - **Disk** per process is file and device I/O (Windows' I/O counters, like Process Explorer's I/O column); it can include some
   network and device I/O. The Performance tab's disk graph is the physical disks.
 - Processes of other users and protected services don't show their path to a normal user; they're marked "(protected)" and
@@ -80,12 +121,17 @@ Or install it from [Hallow Setup](https://github.com/Dom428/hallow-setup).
 
 Built with the C# compiler that ships with Windows (.NET Framework 4.8): run `build.ps1` (`build.ps1 -Tests` also builds
 `tests\TasksTests.exe` and `tests\Dummy.exe`). WPF in code, `src\Theme.xaml` embedded - **every colour is a theme brush** there, so
-light mode is one more dictionary. `HallowTasks.exe --snap <folder>` renders every page with made-up data.
+light mode swaps the values of the same keys (`src\Look.cs`). `HallowTasks.exe --snap <folder>` renders every page in dark and light with made-up data.
 
 Tests: grouping, Impact, the protected / anti-cheat / game lists, the game panel, the priority keeper, startup impact and
 Disable / Restore on a fake HKCU key, the family pipe of a test copy with made-up processes (a fake process control - nothing real
-is ended or changed), read-only sampling of the real PC, and kill / priority / affinity / process tree **only on Dummy.exe
-children the tests start themselves**.
+is ended or changed), read-only sampling of the real PC, and kill / priority / affinity / process tree / Efficiency mode **only
+on Dummy.exe children the tests start themselves**. 1.1 adds: mode resolution (missing = dark, system through a fake, the per-app
+Look wins) and a contrast check of every light text / background pair with several accents (>= 4.5:1, 3:1 for graph lines);
+History spikes, stutters (CPU peaks and Overlay's live numbers), the 24-hour log and its cap; alerts; the tree; services with a
+**fake controller** (the real list is only read - no service is ever started or stopped in tests, and no UAC prompt is ever
+shown); the precise-network protocol, a made-up kernel event, and the helper started **without** elevation (it must answer
+"denied"); and the overhead of a real test copy in the tray and with its window "open".
 
 ## Credits
 

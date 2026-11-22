@@ -22,11 +22,11 @@ namespace HallowTasks
         public bool Exiting;
         public static readonly string[][] Pages = {
             new[] { "processes", "Processes", "list-check" }, new[] { "game", "What's slowing my game", "gamepad" }, new[] { "performance", "Performance", "wave-square" },
-            new[] { "startup", "Startup apps", "rocket" }, new[] { "settings", "Settings", "gear" } };
+            new[] { "history", "History", "clock-rotate-left" }, new[] { "startup", "Startup apps", "rocket" }, new[] { "services", "Services", "server" }, new[] { "settings", "Settings", "gear" } };
         public static string PageId(string s)
         {
             var v = (s ?? "").Trim().ToLowerInvariant();
-            if (v == "perf") v = "performance"; if (v == "apps" || v == "processes" || v == "details") v = "processes"; if (v == "slow" || v == "gaming") v = "game";
+            if (v == "perf") v = "performance"; if (v == "apps" || v == "processes" || v == "details") v = "processes"; if (v == "slow" || v == "gaming") v = "game"; if (v == "spikes") v = "history"; if (v == "service") v = "services";
             return Pages.Any(p => p[0] == v) ? v : null;
         }
 
@@ -39,9 +39,10 @@ namespace HallowTasks
             Rebuild();
             Action sampled = () => Dispatcher.BeginInvoke(new Action(Refresh));
             Action stChanged = () => Dispatcher.BeginInvoke(new Action(() => { if (page == "startup") BuildPage(); }));
-            c.Sampled += sampled; c.StartupChanged += stChanged;
+            Action svChanged = () => Dispatcher.BeginInvoke(new Action(() => { if (page == "services") BuildPage(); }));
+            c.Sampled += sampled; c.StartupChanged += stChanged; c.ServicesChanged += svChanged;
             StateChanged += (s, e) => UpdateActive(); IsVisibleChanged += (s, e) => UpdateActive();
-            Closed += (s, e) => { c.Sampled -= sampled; c.StartupChanged -= stChanged; c.MainClosed(); };
+            Closed += (s, e) => { c.Sampled -= sampled; c.StartupChanged -= stChanged; c.ServicesChanged -= svChanged; c.MainClosed(); };
             KeyDown += OnKey;
         }
         void UpdateActive() { if (!Snap.On) c.SetActive(IsVisible && WindowState != WindowState.Minimized); }
@@ -101,17 +102,20 @@ namespace HallowTasks
             page = id;
             foreach (var kv in nav) kv.Value.Tag = kv.Key == id ? "on" : null;
             if (id == "startup" && c.StartupItems == null) c.RefreshStartup();
+            if (id == "services" && c.ServiceList == null) c.RefreshServices();
             BuildPage();
         }
         void BuildPage()
         {
-            procView = null; perfView = null;
+            procView = null; perfView = null; timeline = null;
             switch (page)
             {
                 case "processes": content.Child = ProcessesPage(); break;
                 case "game": content.Child = GamePage(); break;
                 case "performance": content.Child = PerformancePage(); break;
+                case "history": content.Child = HistoryPage(); break;
                 case "startup": content.Child = StartupPage(); break;
+                case "services": content.Child = ServicesPage(); break;
                 default: content.Child = SettingsPage(); break;
             }
             Refresh();
@@ -122,12 +126,13 @@ namespace HallowTasks
             if (meter != null)
             {
                 if (c.Last == null) meter.Text = c.Active ? "sampling…" : "paused";
-                else meter.Text = (Snap.On || c.Active ? "LIVE · 1/s" : "PAUSED") + "   CPU " + Fmt.Pct(c.Last.Sys.Cpu) + "   RAM " + (c.Last.Sys.RamTotal > 0 ? Fmt.Pct(100.0 * c.Last.Sys.RamUsed / c.Last.Sys.RamTotal) : "-") +
+                else meter.Text = (Snap.On || c.Active ? "LIVE · 1/s" : "PAUSED") + (c.Net.On ? "   NET precise" : "") + "   CPU " + Fmt.Pct(c.Last.Sys.Cpu) + "   RAM " + (c.Last.Sys.RamTotal > 0 ? Fmt.Pct(100.0 * c.Last.Sys.RamUsed / c.Last.Sys.RamTotal) : "-") +
                     "   GPU " + (c.Last.Sys.GpuKnown ? Fmt.Pct(c.Last.Sys.Gpu3D) : "-") + "   Tasks itself " + Fmt.Pct(c.OwnCpu) + " CPU";
             }
             if (page == "processes") RefreshProcesses();
             else if (page == "game") { if (gameAt == null || (DateTime.Now - gameAt.Value).TotalSeconds >= 1.9 || Snap.On) { gameAt = DateTime.Now; content.Child = GamePage(); } }
             else if (page == "performance") RefreshPerformance();
+            else if (page == "history") RefreshHistory();
         }
         DateTime? gameAt;
         void OnKey(object s, KeyEventArgs e)
@@ -144,7 +149,7 @@ namespace HallowTasks
 
         FrameworkElement ProcessesPage()
         {
-            var dock = new DockPanel { Margin = new Thickness(18, 14, 18, 10) }; procView = dock;
+            var dock = new DockPanel { Margin = new Thickness(18, 14, 18, 10) }; procView = dock; detailsFor = null;
             // top: title, search, chips
             var top = new DockPanel { Margin = new Thickness(0, 0, 0, 10) };
             var title = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
@@ -165,6 +170,9 @@ namespace HallowTasks
                 t.Click += (s, e) => { filter = ff; foreach (var kv in chips) kv.Value.IsChecked = kv.Key == filter; RefreshProcesses(); };
                 chips[f] = t; chipRow.Children.Add(t);
             }
+            var treeBtn = new ToggleButton { Content = "Tree", Style = Ui.S("Chip"), Margin = new Thickness(6, 0, 0, 0), IsChecked = c.S.TreeView, ToolTip = "Tree view: every process under the one that started it (parent \u2192 children), with End tree. Off: grouped by app, like Task Manager." };
+            treeBtn.Click += (s, e) => { c.S.TreeView = treeBtn.IsChecked == true; c.S.Save(); selKey = null; selChild = null; RefreshProcesses(); };
+            chipRow.Children.Add(new Border { Width = 1, Background = Ui.R("Line"), Margin = new Thickness(6, 3, 0, 3) }); chipRow.Children.Add(treeBtn);
             top.Children.Add(chipRow);
             DockPanel.SetDock(top, Dock.Top); dock.Children.Add(top);
 
@@ -212,7 +220,7 @@ namespace HallowTasks
                 case "gpu": return "3D engine use (Windows' \"GPU Engine\" counters, engtype_3D, summed per process).";
                 case "gpumem": return "Dedicated graphics memory in use.";
                 case "disk": return "File and device reads + writes per second (it can include some network and device I/O, like Process Explorer's I/O column).";
-                case "net": return "Open TCP connections. Bytes per process need admin (Windows only gives them to ETW), so Hallow Tasks shows the connection count - the Performance tab has the PC's total network speed.";
+                case "net": return "Open TCP connections. Bytes per process need admin (Windows only gives them to ETW): Settings > \"Precise network (needs admin)\" starts a small helper after Windows asks you (UAC), and this column shows send + receive speed until Hallow Tasks closes.";
                 case "power": return "A hint from CPU, GPU and disk use - not a measurement.";
                 case "publisher": return "Who signed the program (or the company in its file details when it isn't signed).";
                 default: return null;
@@ -245,6 +253,7 @@ namespace HallowTasks
             bool chev; var r = RowAt(e, out chev); if (r == null) return;
             if (r.Proc == null) { selKey = r.Group.Key; selChild = null; } else { selKey = r.Group.Key; selChild = r.Proc.Key; }
             if (!right && r.Proc == null && (chev || e.ClickCount == 2) && r.Group.Members.Count > 1) { if (!expanded.Remove(r.Group.Key)) expanded.Add(r.Group.Key); }
+            if (!right && r.Tree && r.TreeHas && (chev || e.ClickCount == 2)) { if (!treeCollapsed.Remove(r.Proc.Key)) treeCollapsed.Add(r.Proc.Key); }
             RefreshProcesses();
             if (right) { var m = MenuFor(r.Group, r.Proc); m.PlacementTarget = list; m.IsOpen = true; e.Handled = true; }
         }
@@ -257,6 +266,36 @@ namespace HallowTasks
         public void SnapSearch(string s) { searchText = s; if (search != null) search.Text = s; }
         public void SnapFilter(string f) { filter = f; foreach (var kv in chips) kv.Value.IsChecked = kv.Key == f; }
 
+        readonly HashSet<string> treeCollapsed = new HashSet<string>();
+        void RefreshTree(List<AppGroup> groups)
+        {
+            var procs = c.Last == null ? new List<ProcInfo>() : c.Last.Procs;
+            var groupOf = new Dictionary<int, AppGroup>(); foreach (var g in groups) foreach (var m in g.Members) groupOf[m.Pid] = g;
+            var q = (searchText ?? "").Trim(); bool filtering = filter != "All" || q.Length > 0;
+            Func<string, bool> has = a => a != null && a.IndexOf(q, StringComparison.CurrentCultureIgnoreCase) >= 0;
+            Func<ProcInfo, bool> show = p =>
+            {
+                AppGroup g; if (!groupOf.TryGetValue(p.Pid, out g)) return false;
+                if (filter != "All" && g.Category != filter) return false;
+                return q.Length == 0 || has(p.Name) || has(p.Description) || has(p.Path) || has(g.Title) || p.Pid.ToString() == q;
+            };
+            var tree = Grouping.Forest(procs, treeCollapsed, filtering ? show : null, p => ImpactCalc.Score(p.Cpu, p.Gpu, p.DiskRead + p.DiskWrite, p.Ram));
+            if (shown != null) shown.Text = tree.Count + " processes \u00B7 tree";
+            var want = new List<RowVm>();
+            foreach (var tr in tree)
+            {
+                AppGroup g; if (!groupOf.TryGetValue(tr.Proc.Pid, out g)) continue;
+                var r = rows.Ensure("t|" + tr.Proc.Key); r.Group = g; r.Proc = tr.Proc; r.Tree = true; r.TreeHas = tr.HasChildren; Fill(r, g, tr.Proc);
+                r.Set("Chevron", tr.HasChildren ? (treeCollapsed.Contains(tr.Proc.Key) ? "\u25B8" : "\u25BE") : "");
+                r.Set("Indent", new Thickness(4 + 16 * Math.Min(tr.Depth, 12), 0, 0, 0));
+                r.Set("Name", tr.Proc.Name); r.Set("Count", tr.Proc.Pid.ToString());
+                r.Set("Bold", tr.Proc.HasWindow);
+                bool sel = selChild == tr.Proc.Key; r.Set("RowBg", Ui.R(sel ? "RowSel" : "Heat0"));
+                want.Add(r);
+            }
+            rows.Order(want);
+            UpdateDetails();
+        }
         void RefreshProcesses()
         {
             if (list == null || rows == null) return;
@@ -270,17 +309,18 @@ namespace HallowTasks
                 SetHead("name", "");
             }
             foreach (var kv in heads) { var col = kv.Key == "name" ? "name" : kv.Key; var arrow = SortCol == col || (SortCol == "impact" && col == "name") ? (SortCol == "impact" ? "  ▾ impact" : c.S.SortUp ? "  ▴" : "  ▾") : ""; kv.Value[1].Text = (kv.Key == "name" ? "Name" : ProcessColumns.Cols.First(x => x[0] == kv.Key)[1]) + arrow; kv.Value[1].Foreground = arrow.Length > 0 ? Ui.R("AccentBrush") : Ui.R("Muted"); }
+            if (c.S.TreeView) { RefreshTree(groups); return; }
             var shownGroups = Grouping.Sort(groups.Where(g => Grouping.Matches(g, searchText, filter) && !(g.Members.Count == 1 && g.Members[0].Pid == 0)), SortCol, SortCol == "impact" ? true : !c.S.SortUp);
             if (shown != null) shown.Text = shownGroups.Count + " apps · " + shownGroups.Sum(g => g.Members.Count) + " processes";
             var want = new List<RowVm>();
             foreach (var g in shownGroups)
             {
-                var r = rows.Ensure("g|" + g.Key); r.Group = g; r.Proc = null; Fill(r, g, null);
+                var r = rows.Ensure("g|" + g.Key); r.Group = g; r.Proc = null; r.Tree = false; Fill(r, g, null);
                 want.Add(r);
                 if (expanded.Contains(g.Key) && g.Members.Count > 1)
                     foreach (var p in g.Members.OrderByDescending(x => x.Cpu + x.Gpu * 0.8).ThenBy(x => x.Pid))
                     {
-                        var cr = rows.Ensure("p|" + p.Key); cr.Group = g; cr.Proc = p; Fill(cr, g, p); want.Add(cr);
+                        var cr = rows.Ensure("p|" + p.Key); cr.Group = g; cr.Proc = p; cr.Tree = false; Fill(cr, g, p); want.Add(cr);
                     }
             }
             rows.Order(want);
@@ -303,7 +343,7 @@ namespace HallowTasks
             var lowered = c.Keeper.Lowered.Any(e => child ? e.Pid == p.Pid : g.Members.Any(m => m.Pid == e.Pid));
             if (!child && g.IsGame || child && Known.IsGameName(p.Name, c.ExtraGames) || (child && c.Game != null && c.Game.Key == p.Key)) r.SetTag("Game", "Green", "GreenBg");
             else if (child ? Known.IsAntiCheat(p.Name) : g.IsAntiCheat) r.SetTag("Anti-cheat", "Amber", "AmberBg");
-            else if (lowered) r.SetTag("Lowered", "Lilac", "LilacBg");
+            else if (child ? c.EcoOn(p) : c.EcoOn(g)) r.SetTag("Efficiency", "Green", "GreenBg");
             else if (child ? p.Signed == false && p.Path != null : g.Signed == false && g.Category != "Hallow") r.SetTag("Not signed", "Amber", "AmberBg");
             else r.SetTag(null, null, null);
             r.Set("Cpu", Fmt.Pct(cpu)); r.Set("CpuBg", Ui.R("Heat" + ImpactCalc.Heat(cpu)));
@@ -312,7 +352,8 @@ namespace HallowTasks
             r.Set("GpuMem", gmem > 0 ? Fmt.Bytes(gmem) : "-");
             r.Set("Disk", Fmt.Rate(disk)); r.Set("DiskBg", Ui.R("Heat" + ImpactCalc.HeatBytes(disk)));
             r.Set("DiskTip", "Read " + Fmt.Rate(child ? p.DiskRead : g.DiskRead) + ", write " + Fmt.Rate(child ? p.DiskWrite : g.DiskWrite));
-            r.Set("Net", conns < 0 ? "-" : conns == 0 ? "-" : conns + " conn");
+            double nb = child ? (p.NetSend >= 0 ? p.NetSend + p.NetRecv : -1) : g.NetBytes;
+            r.Set("Net", nb >= 0 ? (nb < 1 ? "0 Kbps" : Fmt.Bits(nb)) : conns < 0 ? "-" : conns == 0 ? "-" : conns + " conn");
             var pw = ImpactCalc.Power(cpu, gpu, disk); r.Set("Power", pw);
             r.Set("PowerFg", Ui.R(pw == "Very high" ? "Red" : pw == "High" ? "Amber" : pw == "Moderate" ? "Text" : "Muted"));
             var pub = child ? (p.Signer ?? p.Company) : g.Category == "Hallow" ? "Hallow" : g.Publisher; var signed = child ? p.Signed : g.Signed;
@@ -369,9 +410,11 @@ namespace HallowTasks
             var btns = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, MaxWidth = 470 };
             Action<Button> add = b => { b.Margin = new Thickness(6, 0, 0, 6); btns.Children.Add(b); };
             var end = Ui.Danger("End task", () => EndSelected(false)); end.IsEnabled = why == null; if (why != null) { end.ToolTip = why; ToolTipService.SetShowOnDisabled(end, true); } add(end);
-            var tree = Ui.Btn("End process tree", () => EndSelected(true)); tree.IsEnabled = why == null; if (why != null) { tree.ToolTip = why; ToolTipService.SetShowOnDisabled(tree, true); } add(tree);
+            var tree = Ui.Btn(c.S.TreeView ? "End tree" : "End process tree", () => EndSelected(true)); tree.IsEnabled = why == null; if (why != null) { tree.ToolTip = why; ToolTipService.SetShowOnDisabled(tree, true); } add(tree);
             var prio = Ui.Btn("Priority...", () => PrioritySelected()); prio.IsEnabled = why == null; add(prio);
             var aff = Ui.Btn("Affinity...", () => AffinitySelected()); aff.IsEnabled = why == null; add(aff);
+            bool ecoOn = p != null ? (c.EcoOn(p) || c.Ctl.GetEfficiency(p.Pid) == true) : (c.EcoOn(g) || (x != null && c.Ctl.GetEfficiency(x.Pid) == true));
+            var eco = Ui.Btn(ecoOn ? "Efficiency off" : "Efficiency mode", () => EfficiencySelected(!ecoOn), false, EcoKeeper.What); eco.IsEnabled = why == null; if (why != null) { eco.ToolTip = why; ToolTipService.SetShowOnDisabled(eco, true); } add(eco);
             add(Ui.Btn("Open file location", () => Done(c.OpenLocation(x == null ? null : x.Path), null)));
             add(Ui.Btn("Search online", () => { if (x != null) { c.SearchOnline(x); Say("Opened a web search for " + x.Name + " in your browser."); } }, false, "Opens your browser with a web search for " + (x == null ? "it" : x.Name) + " - only when you click."));
             var scan = Ui.Btn(c.Scanning ? "Scanning..." : "Scan with Defender", null, false, "Microsoft Defender checks the program's file (through Hallow Guard when it offers that, otherwise Defender's own scanner).");
@@ -384,8 +427,14 @@ namespace HallowTasks
         string detailsFor; TextBlock detailsNums;
         static string Nums(AppGroup g, ProcInfo p)
         {
-            if (p != null) return "CPU " + Fmt.Pct(p.Cpu) + "  ·  RAM " + Fmt.Bytes(p.Ram) + "  ·  GPU " + Fmt.Pct(p.Gpu) + " (" + (p.GpuMem > 0 ? Fmt.Bytes(p.GpuMem) : "0 MB") + ")  ·  disk " + Fmt.Rate(p.DiskRead + p.DiskWrite) + "  ·  power " + ImpactCalc.Power(p.Cpu, p.Gpu, p.DiskRead + p.DiskWrite).ToLowerInvariant();
-            return "CPU " + Fmt.Pct(g.Cpu) + "  ·  RAM " + Fmt.Bytes(g.Ram) + "  ·  GPU " + Fmt.Pct(g.Gpu) + " (" + (g.GpuMem > 0 ? Fmt.Bytes(g.GpuMem) : "0 MB") + ")  ·  disk " + Fmt.Rate(g.DiskRead + g.DiskWrite) + "  ·  impact " + g.Impact.ToString("0.0");
+            if (p != null) return "CPU " + Fmt.Pct(p.Cpu) + "  ·  RAM " + Fmt.Bytes(p.Ram) + "  ·  GPU " + Fmt.Pct(p.Gpu) + " (" + (p.GpuMem > 0 ? Fmt.Bytes(p.GpuMem) : "0 MB") + ")  ·  disk " + Fmt.Rate(p.DiskRead + p.DiskWrite) + (p.NetSend >= 0 ? "  ·  net \u2191" + Fmt.Bits(p.NetSend) + " \u2193" + Fmt.Bits(p.NetRecv) : "") + "  ·  power " + ImpactCalc.Power(p.Cpu, p.Gpu, p.DiskRead + p.DiskWrite).ToLowerInvariant();
+            return "CPU " + Fmt.Pct(g.Cpu) + "  ·  RAM " + Fmt.Bytes(g.Ram) + "  ·  GPU " + Fmt.Pct(g.Gpu) + " (" + (g.GpuMem > 0 ? Fmt.Bytes(g.GpuMem) : "0 MB") + ")  ·  disk " + Fmt.Rate(g.DiskRead + g.DiskWrite) + (g.NetBytes >= 0 ? "  ·  net " + Fmt.Bits(g.NetBytes) : "") + "  ·  impact " + g.Impact.ToString("0.0");
+        }
+        void EfficiencySelected(bool on)
+        {
+            AppGroup g; ProcInfo p; Selected(out g, out p); if (g == null) return;
+            var err = p != null ? c.SetEfficiency(p, on) : c.SetEfficiency(g, on);
+            Done(err, on ? (p != null ? p.Name : g.Title) + " is in Efficiency mode (EcoQoS + Idle priority - what Windows' own Efficiency mode does)." : "Efficiency mode is off for " + (p != null ? p.Name : g.Title) + ".");
         }
         void Selected(out AppGroup g, out ProcInfo p)
         {
@@ -436,10 +485,12 @@ namespace HallowTasks
             var m = new ContextMenu(); var why = p != null ? c.WhyNot(p) : c.WhyNot(g); var x = p ?? g.Main;
             Action<string, string, Action, bool> item = (label, icon, act, on) => { var mi = new MenuItem { Header = label, IsEnabled = on, Icon = icon == null ? null : Icons.Make(icon, 13, Ui.R("Text")) }; mi.Click += (s, e) => act(); m.Items.Add(mi); };
             item("End task", "circle-xmark", () => EndSelected(false), why == null);
-            item("End process tree", "skull-crossbones", () => EndSelected(true), why == null);
+            item(c.S.TreeView ? "End tree" : "End process tree", "skull-crossbones", () => EndSelected(true), why == null);
             m.Items.Add(new Separator());
             item("Set priority...", "sliders", PrioritySelected, why == null);
             item("Set affinity...", "microchip", AffinitySelected, why == null);
+            bool eco = p != null ? c.EcoOn(p) : c.EcoOn(g);
+            item(eco ? "Efficiency mode: turn off" : "Efficiency mode (like Windows')", "leaf", () => EfficiencySelected(!eco), why == null);
             m.Items.Add(new Separator());
             item("Open file location", "folder-open", () => Done(c.OpenLocation(x == null ? null : x.Path), null), x != null && x.Path != null);
             item("Search online", "globe", () => { c.SearchOnline(x); Say("Opened a web search for " + x.Name + " in your browser."); }, x != null);

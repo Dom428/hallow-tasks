@@ -3,7 +3,8 @@
                     xmlns:h="clr-namespace:HallowTasks;assembly=HallowTasks">
     <!-- Hallow Tasks: the family console look (Hallow Guard 1.7's "Hallow console"): dark purple-black, the Hallow accent (#F07820 is
          swapped for theme.json's accent, also in its #AARRGGBB forms), lilac secondaries and the family green / amber / red.
-         EVERY colour the app uses is a brush in this file (the code only asks for keys), so a light mode is one more dictionary. -->
+         EVERY colour the app uses is a brush in this file (the code only asks for keys). Light mode (1.1) swaps the values of the same
+         keys (Look.cs) and darkens the accent for text. -->
     <h:IconConv x:Key="IconConv"/><h:IconVis x:Key="IconVis"/><h:LabelVis x:Key="LabelVis"/><h:IconGap x:Key="IconGap"/>
     <!-- surfaces -->
     <SolidColorBrush x:Key="Bg" Color="#14101B"/>
@@ -62,6 +63,10 @@
     <SolidColorBrush x:Key="GraphDown" Color="#6ED28C"/>
     <SolidColorBrush x:Key="GraphDownFill" Color="#266ED28C"/>
     <SolidColorBrush x:Key="GraphUp" Color="#F0BE5A"/>
+    <!-- History: spike and stutter marks, the band while a game ran -->
+    <SolidColorBrush x:Key="SpikeMark" Color="#F0BE5A"/>
+    <SolidColorBrush x:Key="StutterMark" Color="#E05A64"/>
+    <SolidColorBrush x:Key="GameBand" Color="#146ED28C"/>
     <!-- the letter tile for processes without an icon -->
     <SolidColorBrush x:Key="TileBg" Color="#2E2640"/>
     <SolidColorBrush x:Key="TileText" Color="#A98BE0"/>

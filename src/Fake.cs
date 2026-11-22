@@ -99,6 +99,39 @@ namespace HallowTasks
         public string Kill(int pid) { Calls.Add("kill " + pid); if (Gone.Contains(pid)) return "That process has closed."; Gone.Add(pid); return null; }
         public string SetAffinity(int pid, long mask) { Calls.Add("affinity " + pid + " " + mask); return mask == 0 ? "Pick at least one CPU." : null; }
         public long Affinity(int pid) { return 0xFFFF; }
+        public readonly HashSet<int> Eco = new HashSet<int>();
+        public string SetEfficiency(int pid, bool on) { Calls.Add("eco " + pid + " " + (on ? "on" : "off")); if (Gone.Contains(pid)) return "That process has closed."; if (on) { Eco.Add(pid); Prios[pid] = Prio.Idle; } else Eco.Remove(pid); return null; }
+        public bool? GetEfficiency(int pid) { if (Gone.Contains(pid)) return null; return Eco.Contains(pid); }
         public long CreateTime(int pid) { if (Gone.Contains(pid)) return 0; long c; return Created.TryGetValue(pid, out c) ? c : 0; }
+    }
+    // a made-up hour of History for --snap: a game from 40 to 5 minutes ago, a few spikes and stutters (never this PC's data)
+    public static class FakeHistory
+    {
+        public static void Fill(HistoryStore h, DateTime now)
+        {
+            h.Clear();
+            for (int i = 720; i >= 0; i--)
+            {
+                var at = now.AddSeconds(-5 * i); double m = 5.0 * i / 60;   // minutes ago
+                bool game = m <= 40 && m >= 5; double w = Math.Sin(i * 0.37) * 0.5 + 0.5;
+                var apps = new List<HistApp>();
+                Action<string, string, double, double, double, int, byte> a = (k, t, c, g, d, ram, kind) => apps.Add(new HistApp { Key = k, Title = t, Cpu = (float)c, Gpu = (float)g, Disk = (float)(d * 1048576), Ram = ram * 1048576L, Kind = kind });
+                if (game) a("exe:deltaforceclient-win64-shipping", "Delta Force", 28 + 6 * w, 90 + 6 * w, 2, 7400, 1);
+                a("chrome", "Google Chrome", m >= 49 && m <= 52 ? 34 + 8 * w : 6 + 3 * w, m >= 49 && m <= 52 ? 26 : 4, 0.3, 1100, 0);
+                a("discord", "Discord", m >= 21.5 && m <= 23 ? 31 + 6 * w : 3 + w, m >= 21.5 && m <= 23 ? 22 : 6, 0.1, 520, 0);
+                a("obs", "OBS Studio", game ? 4 + w : 0.8, game ? 8 : 1, game ? 4.1 : 0, 380, 0);
+                a("svchost", "Service Host (svchost)", m >= 31 && m <= 34 ? 9 : 1.2, 0, m >= 31 && m <= 34 ? 48 + 10 * w : 0.2, 160, 3);
+                a("wallpaper", "Wallpaper Engine", game ? 1 : 3 + w, game ? 2 : 11, 0, 160, 0);
+                if (m >= 14 && m <= 14.6) a("exe:searchindexer", "Microsoft Windows Search Indexer", 18, 0, 26, 46, 3);
+                if (game) a("exe:sguard64", "SGuard", 1.2, 0, 0.05, 48, 2);
+                double cpu = apps.Sum(x => x.Cpu) + 6, gpu = Math.Min(100, apps.Max(x => x.Gpu) + 3);
+                h.Add(new Sample { At = at, Sys = new SysStats { Cpu = Math.Min(97, cpu), Gpu3D = gpu, GpuKnown = true, RamTotal = 32L << 30, RamUsed = (long)((game ? 19.4 : 11.2) * (1 << 30)), DiskRead = apps.Sum(x => x.Disk) } },
+                      new List<AppGroup>(), null, null);
+                var p = h.Points(at).Last(); p.Apps = apps.ToArray(); p.Game = game ? "Delta Force" : null;
+            }
+            h.AddStutterAt(new Stutter { At = now.AddMinutes(-22.4), Source = "overlay", What = "1% low fell to 71 fps (usually 236), average 362", Cause = "Discord: 34% CPU, 22% GPU, 0.1 MB/s disk" });
+            h.AddStutterAt(new Stutter { At = now.AddMinutes(-32.5), Source = "overlay", What = "1% low fell to 102 fps (usually 240), average 371", Cause = "Service Host (svchost) (Windows): 9.0% CPU, 0% GPU, 55 MB/s disk" });
+            h.AddStutterAt(new Stutter { At = now.AddMinutes(-11.2), Source = "overlay", What = "1% low fell to 88 fps (usually 238), average 366", Cause = "Nothing else stood out - probably the game itself, a driver or the network" });
+        }
     }
 }

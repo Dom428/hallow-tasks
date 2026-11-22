@@ -74,7 +74,7 @@ namespace HallowTasks
                 Action<int, string, double> num = (col, t, pct) => { var tb = Ui.Num(t, 12, Ui.R(pct >= 15 ? "Amber" : "Text")); tb.HorizontalAlignment = HorizontalAlignment.Right; tb.VerticalAlignment = VerticalAlignment.Center; tb.Margin = new Thickness(0, 0, 8, 0); Grid.SetColumn(tb, col); row.Children.Add(tb); };
                 num(2, Fmt.Pct(r.Cpu), r.Cpu); num(3, Fmt.Pct(r.Gpu), r.Gpu); num(4, Fmt.Rate(r.Disk), r.Disk / 1048576 * 5);
                 var barBack = new Border { Height = 6, Background = Ui.R("GraphBg"), CornerRadius = new CornerRadius(1), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 10, 0) };
-                var barFill = new Border { Height = 6, Background = Ui.R(r.Tag == Known.AntiCheatTag ? "Amber" : "AccentBrush"), CornerRadius = new CornerRadius(1), HorizontalAlignment = HorizontalAlignment.Left, Width = Math.Max(2, 120 * r.Score / top) };
+                var barFill = new Border { Height = 6, Background = Ui.R(r.Tag == Known.AntiCheatTag ? "Amber" : "AccentBrush"), CornerRadius = new CornerRadius(1), HorizontalAlignment = HorizontalAlignment.Left, Width = Math.Max(2, 100 * r.Score / top) };
                 var barGrid = new Grid(); barGrid.Children.Add(barBack); barFill.Margin = new Thickness(6, 0, 0, 0); barGrid.Children.Add(barFill); Grid.SetColumn(barGrid, 5); row.Children.Add(barGrid);
                 var acts = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Right };
                 var lowered = c.Keeper.Lowered.Where(e => r.Group.Members.Any(m => m.Pid == e.Pid && m.CreateTime == e.Created)).ToList();
@@ -82,10 +82,22 @@ namespace HallowTasks
                 else
                 {
                     var g = r.Group;
+                    bool eco = c.EcoOn(g);
+                    if (eco)
+                    {
+                        var pl = Ui.Pill("Efficiency", "Green", "GreenBg"); pl.ToolTip = EcoKeeper.What; pl.Margin = new Thickness(0, 0, 6, 0); acts.Children.Add(pl);
+                        var off = Ui.Btn("Efficiency off", () => { var e = c.SetEfficiency(g, false); if (e != null) Dialogs.Info(this, "Hallow Tasks", e); else Say("Efficiency mode is off for " + g.Title + "."); gameAt = null; Refresh(); }, false, "Back to normal (its priority too).");
+                        off.Padding = new Thickness(8, 3, 8, 3); off.Margin = new Thickness(0, 0, 6, 0); acts.Children.Add(off);
+                    }
+                    else if (lowered.Count == 0)
+                    {
+                        var eb = Ui.Btn("Efficiency", () => { var e = c.SetEfficiency(g, true); if (e != null) Dialogs.Info(this, "Hallow Tasks", e); else Say(g.Title + " is in Efficiency mode - what Windows 11's own Efficiency mode does (EcoQoS + Idle priority)."); gameAt = null; Refresh(); }, false, EcoKeeper.What);
+                        eb.Padding = new Thickness(8, 3, 8, 3); eb.Margin = new Thickness(0, 0, 6, 0); acts.Children.Add(eb);
+                    }
                     if (lowered.Count > 0) { var pl = Ui.Pill("Lowered", "Lilac", "LilacBg"); pl.ToolTip = PriorityKeeper.Word(lowered[0].Now) + " until the game closes"; pl.Margin = new Thickness(0, 0, 6, 0); acts.Children.Add(pl); }
                     foreach (var pr in new[] { Prio.BelowNormal, Prio.Idle })
                     {
-                        var to = pr; if (lowered.Count > 0) continue;
+                        var to = pr; if (lowered.Count > 0 || eco) continue;
                         var b = Ui.Btn(PriorityKeeper.Word(pr), () => { var e = c.LowerGroup(g, to); if (e != null) Dialogs.Info(this, "Hallow Tasks", e); else Say(g.Title + " is at " + PriorityKeeper.Word(to) + " priority until the game closes."); gameAt = null; Refresh(); },
                             false, to == Prio.Idle ? "Only runs when nothing else wants the CPU - put back when the game closes." : "Gets the CPU after your game - put back when the game closes.");
                         b.Padding = new Thickness(8, 3, 8, 3); b.Margin = new Thickness(0, 0, 6, 0); acts.Children.Add(b);
@@ -110,7 +122,7 @@ namespace HallowTasks
         static Grid GameGrid()
         {
             var g = new Grid();
-            foreach (var w in new[] { 30.0, -1, 70, 70, 90, 140, 300 }) g.ColumnDefinitions.Add(new ColumnDefinition { Width = w < 0 ? new GridLength(1, GridUnitType.Star) : new GridLength(w) });
+            foreach (var w in new[] { 30.0, -1, 70, 70, 90, 120, 400 }) g.ColumnDefinitions.Add(new ColumnDefinition { Width = w < 0 ? new GridLength(1, GridUnitType.Star) : new GridLength(w) });
             return g;
         }
         void AddLowered(StackPanel sp)
@@ -129,6 +141,19 @@ namespace HallowTasks
                     box.Children.Add(row);
                 }
                 box.Children.Add(Ui.Muted("They go back by themselves when the game closes or when you quit Hallow Tasks.", 11.5));
+            }
+            if (c.Eco.On.Count > 0)
+            {
+                var eh = Ui.Caps("In Efficiency mode", 11); eh.Margin = new Thickness(0, 12, 0, 0); box.Children.Add(eh);
+                foreach (var e in c.Eco.On.ToList())
+                {
+                    var ee = e; var row = new DockPanel { Margin = new Thickness(0, 6, 0, 0) };
+                    var ob = Ui.Btn("Efficiency off", () => { var pi = c.Last == null ? null : c.Last.Procs.FirstOrDefault(q => q.Pid == ee.Pid && q.CreateTime == ee.Created); var err = pi == null ? null : c.SetEfficiency(pi, false); if (pi == null) c.Eco.On.Remove(ee); if (err != null) Dialogs.Info(this, "Hallow Tasks", err); gameAt = null; Refresh(); });
+                    ob.Padding = new Thickness(8, 3, 8, 3); ob.Margin = new Thickness(0); DockPanel.SetDock(ob, Dock.Right); row.Children.Add(ob);
+                    var t = Ui.Num(ee.Name + "  PID " + ee.Pid + "   EcoQoS + Idle (was " + PriorityKeeper.Word(ee.Was) + ")", 12, Ui.R("Text")); t.VerticalAlignment = VerticalAlignment.Center; row.Children.Add(t);
+                    box.Children.Add(row);
+                }
+                box.Children.Add(Ui.Muted("Like Windows' own Efficiency mode, it stays until you turn it off or the app closes.", 11.5));
             }
             var card = Ui.Card(box, 14); card.Margin = new Thickness(0, 12, 0, 0); sp.Children.Add(card);
         }
@@ -269,12 +294,15 @@ namespace HallowTasks
             var sp = PageBody("Settings", null);
             var a = new StackPanel();
             a.Children.Add(Ui.Caps("Hallow Tasks", 11));
-            a.Children.Add(Ui.Switch("Start with Windows (in the tray - it doesn't sample anything until you open it)", c.StartsWithWindows(), on => c.SetStartWithWindows(on)));
+            a.Children.Add(Ui.Switch("Start with Windows (in the tray - quiet: only History's sample every 5 s, if that's on)", c.StartsWithWindows(), on => c.SetStartWithWindows(on)));
             var hk = Ui.Switch("Ctrl+Alt+T opens Hallow Tasks", c.S.Hotkey, null);
             hk.Click += (s, e) => { var err = c.SetHotkey(hk.IsChecked == true); if (err != null) { hk.IsChecked = false; Dialogs.Info(this, "Hallow Tasks", err); } };
             a.Children.Add(hk);
             a.Children.Add(Ui.Muted("Ctrl+Shift+Esc always opens Windows' Task Manager - Windows doesn't let another app take it over safely, so Hallow Tasks offers Ctrl+Alt+T instead (off until you turn it on).", 11.5, 6));
             sp.Children.Add(Ui.Card(a));
+            sp.Children.Add(LookCard());
+            sp.Children.Add(HistoryCard());
+            sp.Children.Add(NetworkCard());
             var f = new StackPanel();
             f.Children.Add(Ui.Caps("Hallow family", 11));
             f.Children.Add(Ui.Switch("Use the Hallow icon (Hallow Hub's tray menu lists Hallow Tasks)", c.S.UseHallowIcon, on => { c.S.UseHallowIcon = on; c.S.Save(); c.CheckHost(); }));
@@ -292,7 +320,7 @@ namespace HallowTasks
             var gc = Ui.Card(g); gc.Margin = new Thickness(0, 12, 0, 0); sp.Children.Add(gc);
             var b = Ui.Row(Ui.Btn("Check for updates", () => c.CheckForUpdate(true)), Ui.Btn("Open data folder", () => { if (Snap.On) return; try { Directory.CreateDirectory(TaskSettings.Dir); System.Diagnostics.Process.Start("explorer.exe", "\"" + TaskSettings.Dir + "\""); } catch { } }));
             b.Margin = new Thickness(0, 12, 0, 12); sp.Children.Add(b);
-            sp.Children.Add(Ui.Muted("Hallow Tasks " + Program.Version + " - no admin needed. It samples once a second only while this window is open and not minimized. Per-process network bytes need admin (Windows only gives them to ETW), so the Network column counts each app's connections; CPU temperature needs a kernel driver, so it isn't shown. Nothing is sent anywhere - Search online opens your browser only when you click it.", 11.5, 6));
+            sp.Children.Add(Ui.Muted("Hallow Tasks " + Program.Version + " - no admin needed for normal use. It samples once a second while this window is open, and every 5 s in the tray for History (Settings above). Per-process network bytes need admin (Windows only gives them to ETW): \"Precise network\" asks Windows (UAC) each time you switch it on; otherwise the Network column counts each app's connections. CPU temperature needs a kernel driver, so it isn't shown. Nothing is sent anywhere - Search online opens your browser only when you click it.", 11.5, 6));
             sp.Children.Add(Ui.Muted("Icons: Font Awesome Free (CC BY 4.0).", 11, 0));
             return Scroll(sp);
         }

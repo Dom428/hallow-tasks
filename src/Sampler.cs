@@ -481,6 +481,36 @@ namespace HallowTasks
             var h = OpenProcess(SET_INFO | QUERY_LIMITED, false, pid); if (h == IntPtr.Zero) return Err("it");
             try { return SetProcessAffinityMask(h, new UIntPtr((ulong)mask)) ? null : Err("it"); } finally { CloseHandle(h); }
         }
+        // Efficiency mode (what Windows 11 Task Manager does): EcoQoS through ProcessPowerThrottling (execution speed) + Idle priority.
+        // Off: Windows decides again (no throttling state set). Works without admin for your own processes.
+        [StructLayout(LayoutKind.Sequential)] struct PowerThrottling { public uint Version, ControlMask, StateMask; }
+        [DllImport("kernel32.dll", SetLastError = true)] static extern bool SetProcessInformation(IntPtr h, int cls, ref PowerThrottling info, int size);
+        [DllImport("kernel32.dll", SetLastError = true)] static extern bool GetProcessInformation(IntPtr h, int cls, ref PowerThrottling info, int size);
+        const int ProcessPowerThrottling = 4;
+        public string SetEfficiency(int pid, bool on)
+        {
+            var h = OpenProcess(SET_INFO | QUERY_LIMITED, false, pid); if (h == IntPtr.Zero) return Err("it");
+            try
+            {
+                var st = new PowerThrottling { Version = 1, ControlMask = on ? 1u : 0u, StateMask = on ? 1u : 0u };
+                if (!SetProcessInformation(h, ProcessPowerThrottling, ref st, Marshal.SizeOf(typeof(PowerThrottling)))) return Err("it");
+                if (on && !SetPriorityClass(h, 0x40)) return Err("it");
+                return null;
+            }
+            finally { CloseHandle(h); }
+        }
+        public bool? GetEfficiency(int pid)
+        {
+            var h = OpenProcess(QUERY_LIMITED, false, pid); if (h == IntPtr.Zero) return null;
+            try
+            {
+                var st = new PowerThrottling { Version = 1 };
+                if (!GetProcessInformation(h, ProcessPowerThrottling, ref st, Marshal.SizeOf(typeof(PowerThrottling)))) return null;
+                return (st.ControlMask & 1) != 0 && (st.StateMask & 1) != 0;
+            }
+            catch { return null; }
+            finally { CloseHandle(h); }
+        }
         public long CreateTime(int pid)
         {
             var h = OpenProcess(QUERY_LIMITED, false, pid); if (h == IntPtr.Zero) return 0;
