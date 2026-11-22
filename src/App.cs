@@ -19,14 +19,14 @@ using WF = System.Windows.Forms;
 [assembly: AssemblyTitle("Hallow Tasks")]
 [assembly: AssemblyProduct("Hallow Tasks")]
 [assembly: AssemblyDescription("A better Task Manager, Hallow style")]
-[assembly: AssemblyVersion("1.2.0.0")]
-[assembly: AssemblyFileVersion("1.2.0.0")]
+[assembly: AssemblyVersion("1.2.1.0")]
+[assembly: AssemblyFileVersion("1.2.1.0")]
 
 namespace HallowTasks
 {
     public static class Program
     {
-        public const string Version = "1.2";
+        public const string Version = "1.2.1";
         [DllImport("user32.dll")] static extern bool SetProcessDpiAwarenessContext(IntPtr v);
 
         [STAThread]
@@ -206,7 +206,9 @@ namespace HallowTasks
         // --snap and tests: a sample right now, on this thread
         public void SampleNow() { Apply(Take()); }
         DateTime lastTakeAt = DateTime.MinValue;
-        Sample Take() { lock (sampleLock) { var s = sampler.Take(); lastTakeAt = DateTime.Now; return s; } }
+        // the very first sample has no CPU numbers yet (they are the difference to the one before): never a cached answer (1.2.1)
+        Sample firstTake; bool tookAny;
+        Sample Take() { lock (sampleLock) { var s = sampler.Take(); lastTakeAt = DateTime.Now; if (!tookAny) { tookAny = true; firstTake = s; } return s; } }
         public void SnapGame(bool on) { var f = sampler as FakeSampler; if (f != null) f.GameOn = on; }
         void Apply(Sample s)
         {
@@ -663,7 +665,7 @@ namespace HallowTasks
                     S.LastUpdateCheck = DateTime.Now.ToString("o"); S.Save();
                     if (r == null) { if (manual) Say("Couldn't reach GitHub - try again later."); return; }
                     if (!Updater.IsNewer(r)) { if (manual) Say("You have the newest version (v" + Program.Version + ")."); return; }
-                    pending = r; if (main != null) main.ShowUpdate("Update to v" + r.Version.ToString(2));
+                    pending = r; if (main != null) main.ShowUpdate("Update to v" + r.Version.ToString(r.Version.Build > 0 ? 3 : 2));
                     Say("Hallow Tasks v" + r.Version.ToString(2) + " is out - click Update at the top.");
                 }));
             }) { IsBackground = true }.Start();
@@ -691,7 +693,7 @@ namespace HallowTasks
         List<AppGroup> FreshGroups(out Sample s)
         {
             s = Last; var g = Groups;
-            if (s != null && g != null && (DateTime.Now - s.At).TotalSeconds <= QuickMaxAge) return g;
+            if (s != null && g != null && s != firstTake && (DateTime.Now - s.At).TotalSeconds <= QuickMaxAge) return g;
             lock (sampleLock)
             {
                 if ((DateTime.Now - lastTakeAt).TotalSeconds > 15) { Take(); Thread.Sleep(700); }
@@ -723,7 +725,7 @@ namespace HallowTasks
         // on the UI thread, after each sample: the cached reply (at most every 1.5 s) and status.json (at most every 4.5 s, only while wanted)
         void CacheQuick(Sample s, bool force)
         {
-            if (SnapMode || quitting || s == null) return;
+            if (SnapMode || quitting || s == null || s == firstTake) return;
             if (!force && (s.At - quickAt).TotalSeconds < 1.5 && quickJson != null) return;
             var json = Family.Json(StatusData(true, s, Groups)); quickJson = json; quickAt = s.At;
             if ((Leased || consumers) && (DateTime.Now - quickFileAt).TotalSeconds >= 4.5)
@@ -738,7 +740,7 @@ namespace HallowTasks
             var j = quickJson;
             if (j != null && (DateTime.Now - quickAt).TotalSeconds <= QuickMaxAge) return "ok " + j;
             Sample s; FreshGroups(out s);   // on the pipe's thread, never the UI's
-            var r = OnUiValue(() => { if (Last == null || s.At > Last.At) Apply(s); else if (quickAt < s.At) CacheQuick(s, true); return quickJson; });
+            var r = OnUiValue(() => { if (Last == null || s.At > Last.At) Apply(s); else if (quickAt < s.At) CacheQuick(s, true); return quickJson ?? Family.Json(StatusData(true, s, Grouping.Build(s.Procs, sampler.WindowsDir, ExtraGames))); });
             return r == null ? "error no answer in time" : "ok " + r;
         }
         public Dictionary<string, object> StatusData(bool running, Sample s, List<AppGroup> groups)

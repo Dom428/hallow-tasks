@@ -137,7 +137,7 @@ History spikes, stutters (CPU peaks and Overlay's live numbers), the 24-hour log
 shown); the precise-network protocol, a made-up kernel event, and the helper started **without** elevation (it must answer
 "denied"); and the overhead of a real test copy in the tray and with its window "open". 1.2 adds: the busy-app count, `quick`
 (fresh within 5 s over 14 s, answered from the cache, also with the real sampler), status.json kept fresh while asked, and no History
-from samples taken only for Remote / Hub. The suite stops itself (and the ship script kills it) after 5 minutes.
+from samples taken only for Remote / Hub; 1.2.1: right after start `quick` never answers with the first sample's zeros. The suite stops itself (and the ship script kills it) after 5 minutes.
 
 ## Credits
 

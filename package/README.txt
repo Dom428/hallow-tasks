@@ -49,6 +49,10 @@ GOOD TO KNOW
 - CPU temperature needs a kernel driver, so it isn't shown (same as Hallow Overlay).
 - Nothing is sent anywhere. Crash reports stay on this PC.
 
+WHAT'S NEW IN 1.2.1
+- Right after Hallow Tasks starts, Remote and Hub get real CPU numbers (1.2 could show 0% for
+  the first few seconds).
+
 WHAT'S NEW IN 1.2
 - Hallow Remote and Hallow Hub get live numbers at once (never more than 5 s old) and a count of
   busy apps, without Hallow Tasks working any harder in the tray.

@@ -124,8 +124,10 @@ namespace HallowTasks.Tests
             var app3 = StartCopy(exe, dir3, false);
             try
             {
+                Thread.Sleep(6500);   // 1.2.1: the tray's first 5 s sample (no CPU numbers yet - the first one never has) must not be the answer
                 var sw = Stopwatch.StartNew(); var q = Parse(Pipe(dir3, "quick")); var ms1 = sw.ElapsedMilliseconds;
                 Ok(q != null && q["busyApps"] is int && Convert.ToInt32(q["processes"]) > 10, "real copy: quick with " + (q == null ? "?" : q["processes"]) + " processes, " + (q == null ? "?" : q["busyApps"]) + " busy apps (" + ms1 + " ms)");
+                Ok(q != null && Convert.ToDouble(q["cpu"]) > 0 && Age(q, "sampled") <= QuickLimit, "real copy: right after start the answer has real CPU numbers, not the first sample's zeros (cpu " + (q == null ? "?" : q["cpu"]) + ")");
                 Thread.Sleep(2000);
                 sw.Restart(); var q2 = Parse(Pipe(dir3, "quick")); var ms2 = sw.ElapsedMilliseconds;
                 Ok(q2 != null && Age(q2, "sampled") <= QuickLimit && ms2 < 400, "real copy: the second quick comes from the cache (" + ms2 + " ms)");
