@@ -88,15 +88,19 @@ without asking, and needs **no admin** for normal use. Light and dark mode.
   Windows' Startup apps page has them switched off. **Your own** entries (HKCU Run) can be **disabled** - moved to Hallow Tasks'
   backup (`HKCU\Software\HallowTasks\DisabledStartup`), with **Restore** (like Hallow Guard). Nothing is deleted; entries for all
   users open Windows' Startup apps page.
-- **Hallow family**: the family pipe (`ping`, `status` with the top CPU / GPU users, `open [processes|game|performance|startup|
+- **Hallow family**: the family pipe (`ping`, `status` with the top CPU / GPU users, `quick` (1.2: the same fields at once, from a
+  cached sample never more than 5 s old - for Hallow Remote and Hub), `open [processes|game|performance|startup|
   settings|history|services]`, `menu`, `invoke <id>`, `quit`), `HallowTasks.exe --cmd "<line>"`, `%APPDATA%\HallowTasks\status.json`, Hallow Hub's
   tray menu (Hub 2.13+ lists any app answering `menu`; Tasks hides its own icon only when Hub lists it), the Hallow accent colour
-  from `%APPDATA%\Hallow\theme.json`, crash reports kept on this PC, and the GitHub updater (checks the download's SHA-256).
+  from `%APPDATA%\Hallow\theme.json`, crash reports kept on this PC, and the GitHub updater (checks the download's SHA-256). Status carries `busyApps` (1.2: how many apps
+  use at least `busyPercent` = 5% of the CPU or GPU - a count, no names). While Hub or Remote runs, or someone asked `quick` in the last
+  2 minutes, status.json is rewritten with every sample (about every 5 s); otherwise every 60 s.
 - **Ctrl+Alt+T** opens it - **off by default** (Settings). Ctrl+Shift+Esc belongs to Windows' Task Manager and can't be taken
   over safely.
 - **Low overhead**: once a second while its window is open and not minimized (one `NtQuerySystemInformation` call for all
   processes, the GPU counters read in one go, about 10 ms per sample); every 5 s in the tray for History (or not at all, if you
-  switch that off). Measured on a 32-thread PC: **0.02% of the CPU in the tray, 0.05% with the window open**.
+  switch that off). Measured on a 32-thread PC: **0.02% of the CPU in the tray, 0.05% with the window open**. 1.2, with Hallow
+  Remote / Hub asking every 3 s: 0.018% with `quick`, 0.028% with `status` (1.1: 0.050%); idle in the tray unchanged (0.012-0.016%).
 
 ## Limits (no admin)
 
@@ -131,7 +135,9 @@ Look wins) and a contrast check of every light text / background pair with sever
 History spikes, stutters (CPU peaks and Overlay's live numbers), the 24-hour log and its cap; alerts; the tree; services with a
 **fake controller** (the real list is only read - no service is ever started or stopped in tests, and no UAC prompt is ever
 shown); the precise-network protocol, a made-up kernel event, and the helper started **without** elevation (it must answer
-"denied"); and the overhead of a real test copy in the tray and with its window "open".
+"denied"); and the overhead of a real test copy in the tray and with its window "open". 1.2 adds: the busy-app count, `quick`
+(fresh within 5 s over 14 s, answered from the cache, also with the real sampler), status.json kept fresh while asked, and no History
+from samples taken only for Remote / Hub. The suite stops itself (and the ship script kills it) after 5 minutes.
 
 ## Credits
 

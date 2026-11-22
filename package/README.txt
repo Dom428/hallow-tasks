@@ -49,6 +49,10 @@ GOOD TO KNOW
 - CPU temperature needs a kernel driver, so it isn't shown (same as Hallow Overlay).
 - Nothing is sent anywhere. Crash reports stay on this PC.
 
+WHAT'S NEW IN 1.2
+- Hallow Remote and Hallow Hub get live numbers at once (never more than 5 s old) and a count of
+  busy apps, without Hallow Tasks working any harder in the tray.
+
 WHAT'S NEW IN 1.1
 - Light and dark mode (Follow Hallow / Light / Dark).
 - History: what spiked my PC, with a timeline and the stutter moments while you play.

@@ -19,14 +19,14 @@ using WF = System.Windows.Forms;
 [assembly: AssemblyTitle("Hallow Tasks")]
 [assembly: AssemblyProduct("Hallow Tasks")]
 [assembly: AssemblyDescription("A better Task Manager, Hallow style")]
-[assembly: AssemblyVersion("1.1.0.0")]
-[assembly: AssemblyFileVersion("1.1.0.0")]
+[assembly: AssemblyVersion("1.2.0.0")]
+[assembly: AssemblyFileVersion("1.2.0.0")]
 
 namespace HallowTasks
 {
     public static class Program
     {
-        public const string Version = "1.1";
+        public const string Version = "1.2";
         [DllImport("user32.dll")] static extern bool SetProcessDpiAwarenessContext(IntPtr v);
 
         [STAThread]
@@ -158,7 +158,8 @@ namespace HallowTasks
             // while the window is closed or minimized: only a cheap check every 5 s - is the game still running? (to put lowered priorities back)
             idleTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) }; idleTimer.Tick += (s, e) => IdleTick(); idleTimer.Start();
             // History / alerts while the window is closed: a sample every 5 s (Settings can turn it off; the window samples once a second)
-            bgTimer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromSeconds(5) }; bgTimer.Tick += (s, e) => { if (!Active && (S.HistoryInTray || S.Alerts)) SampleAsync(); }; bgTimer.Start();
+            // v1.2: also while Remote / Hub want fresh numbers (someone asked "quick" in the last 2 minutes, or Hub / Remote is running)
+            bgTimer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromSeconds(5) }; bgTimer.Tick += (s, e) => { if (!Active && (S.HistoryInTray || S.Alerts || Leased || ConsumersRunning())) SampleAsync(); }; bgTimer.Start();
             if (S.HistoryLog) OpenLog();
             if (!TaskSettings.Headless)
             {
@@ -198,12 +199,14 @@ namespace HallowTasks
             if (sampling) return; sampling = true;
             ThreadPool.QueueUserWorkItem(_ =>
             {
-                Sample s = null; try { lock (sampleLock) s = sampler.Take(); } catch (Exception e) { Log("sample failed: " + e.Message); }
-                ui.BeginInvoke(new Action(() => { sampling = false; if (s != null && !quitting) Apply(s); }));
+                Sample s = null; try { s = Take(); } catch (Exception e) { Log("sample failed: " + e.Message); }
+                ui.BeginInvoke(new Action(() => { sampling = false; if (s != null && !quitting && (Last == null || s.At >= Last.At)) Apply(s); }));
             });
         }
         // --snap and tests: a sample right now, on this thread
-        public void SampleNow() { Sample s; lock (sampleLock) s = sampler.Take(); Apply(s); }
+        public void SampleNow() { Apply(Take()); }
+        DateTime lastTakeAt = DateTime.MinValue;
+        Sample Take() { lock (sampleLock) { var s = sampler.Take(); lastTakeAt = DateTime.Now; return s; } }
         public void SnapGame(bool on) { var f = sampler as FakeSampler; if (f != null) f.GameOn = on; }
         void Apply(Sample s)
         {
@@ -218,15 +221,17 @@ namespace HallowTasks
             Watch.Push(Groups, game, s.At);
             Push(s.Sys);
             // History: the point, Overlay's live numbers while you play, the 24-hour log, the quiet alerts
-            var hp = Hist.Add(s, Groups, game, GameTitle);
+            // (a sample taken only for Remote / Hub while History in the tray is off isn't kept)
+            var hp = Active || S.HistoryInTray || HistLog != null ? Hist.Add(s, Groups, game, GameTitle) : null;
             if (game != null && !SnapMode && !TaskSettings.Fake && (s.At - overlayAt).TotalSeconds >= 1.9)
             {
                 overlayAt = s.At; var o = HistoryStore.ReadOverlay(Family.DataDir("Overlay"));
                 if (o != null) Hist.OverlayLive(s.At, o[0], o[1], (long)o[2]);
             }
-            if (HistLog != null) HistLog.Push(hp);
+            if (HistLog != null && hp != null) HistLog.Push(hp);
             if (S.Alerts) foreach (var m in alerts.Check(Groups, game, s.At, S.AlertCpu, S.AlertGpu, S.AlertSeconds, SelfPid)) QuietNote(m[0], m[1]);
             if (Eco.On.Count > 0) Eco.On.RemoveAll(x => !s.Procs.Any(p => p.Pid == x.Pid && p.CreateTime == x.Created));
+            CacheQuick(s, false);
             var h = Sampled; if (h != null) h();
         }
         DateTime overlayAt = DateTime.MinValue;
@@ -681,12 +686,60 @@ namespace HallowTasks
 
         // ---------------- family link: status.json and the pipe
         // the top users right now: from the window's newest sample, or (window closed) two quick samples 0.7 s apart
+        // v1.2: the newest sample when it's at most 5 s old (no new sample at all); one quick sample when the last one was taken
+        // within 15 s (its CPU numbers cover the time since); otherwise the two samples as before
         List<AppGroup> FreshGroups(out Sample s)
         {
-            s = Last;
-            if (s != null && Active && (DateTime.Now - s.At).TotalSeconds < 3) return Groups;
-            lock (sampleLock) { sampler.Take(); Thread.Sleep(700); s = sampler.Take(); }
+            s = Last; var g = Groups;
+            if (s != null && g != null && (DateTime.Now - s.At).TotalSeconds <= QuickMaxAge) return g;
+            lock (sampleLock)
+            {
+                if ((DateTime.Now - lastTakeAt).TotalSeconds > 15) { Take(); Thread.Sleep(700); }
+                s = Take();
+            }
             return Grouping.Build(s.Procs, sampler.WindowsDir, ExtraGames);
+        }
+
+        // ---- v1.2: a cached sample for Remote / Hub that is never more than 5 s old. The pipe's "quick" answers from it at once
+        // (a quick sample first only when it's older), and while Hub or Remote runs (or someone asked in the last 2 minutes)
+        // status.json is rewritten with every sample (about every 5 s) instead of every 60 s. Tasks' own sampling stays the
+        // tray's 5 s sample it already takes with History on.
+        public const int QuickMaxAge = 5, LeaseSeconds = 120; public const double BusyPercent = 5;
+        // apps (groups) using at least 5% of the CPU or the GPU; the idle process never counts
+        public static int BusyCount(IEnumerable<AppGroup> groups) { return groups.Count(g => g.Key != "idle" && !(g.Members.Count == 1 && g.Members[0].Pid == 0) && (g.Cpu >= BusyPercent || g.Gpu >= BusyPercent)); }
+        string quickJson; DateTime quickAt = DateTime.MinValue, quickFileAt = DateTime.MinValue; int leaseUntil = Environment.TickCount;
+        bool Leased { get { return unchecked(leaseUntil - Environment.TickCount) > 0; } }
+        bool consumers; int consumersAt = Environment.TickCount - 60000; bool consumersChecking;
+        // is Hallow Hub or Hallow Remote running? (looked up at most every 30 s, off the UI thread)
+        bool ConsumersRunning()
+        {
+            if (unchecked(Environment.TickCount - consumersAt) > 30000 && !consumersChecking)
+            {
+                consumersAt = Environment.TickCount; consumersChecking = true;
+                ThreadPool.QueueUserWorkItem(_ => { try { consumers = Family.Running("Hub") || Family.Running("Remote"); } catch { } consumersChecking = false; });
+            }
+            return consumers;
+        }
+        // on the UI thread, after each sample: the cached reply (at most every 1.5 s) and status.json (at most every 4.5 s, only while wanted)
+        void CacheQuick(Sample s, bool force)
+        {
+            if (SnapMode || quitting || s == null) return;
+            if (!force && (s.At - quickAt).TotalSeconds < 1.5 && quickJson != null) return;
+            var json = Family.Json(StatusData(true, s, Groups)); quickJson = json; quickAt = s.At;
+            if ((Leased || consumers) && (DateTime.Now - quickFileAt).TotalSeconds >= 4.5)
+            {
+                quickFileAt = DateTime.Now;
+                ThreadPool.QueueUserWorkItem(_ => Family.WriteStatus(json));
+            }
+        }
+        string Quick()
+        {
+            leaseUntil = Environment.TickCount + LeaseSeconds * 1000;
+            var j = quickJson;
+            if (j != null && (DateTime.Now - quickAt).TotalSeconds <= QuickMaxAge) return "ok " + j;
+            Sample s; FreshGroups(out s);   // on the pipe's thread, never the UI's
+            var r = OnUiValue(() => { if (Last == null || s.At > Last.At) Apply(s); else if (quickAt < s.At) CacheQuick(s, true); return quickJson; });
+            return r == null ? "error no answer in time" : "ok " + r;
         }
         public Dictionary<string, object> StatusData(bool running, Sample s, List<AppGroup> groups)
         {
@@ -699,6 +752,8 @@ namespace HallowTasks
                 d["topCpu"] = others.OrderByDescending(g => g.Cpu).Take(5).Select(g => new Dictionary<string, object> { { "name", g.Title }, { "cpu", Math.Round(g.Cpu, 1) } }).ToList();
                 d["topGpu"] = others.Where(g => g.Gpu > 0).OrderByDescending(g => g.Gpu).Take(5).Select(g => new Dictionary<string, object> { { "name", g.Title }, { "gpu", Math.Round(g.Gpu, 1) } }).ToList();
                 d["processes"] = s.Procs.Count; d["sampled"] = Family.Time(s.At);
+                // v1.2: how many apps are busy right now (a count only, no names): at least 5% of the CPU or the GPU
+                d["busyApps"] = BusyCount(others); d["busyPercent"] = BusyPercent;
             }
             var game = s != null && !Active ? GameDetect.Find(s.Procs, ExtraGames, HubPlaying) : Game;
             d["game"] = game == null ? null : GameDetect.Title(game, HubPlaying); d["lowered"] = Keeper.Lowered.Count; d["sampling"] = Active;
@@ -730,6 +785,7 @@ namespace HallowTasks
                         var d = OnUiValue(() => StatusData(true, s, g)); if (d == null) return "error no answer in time";
                         Family.WriteStatus(Family.Json(d)); return "ok " + Family.Json(d);
                     }
+                case "quick": return Quick();   // v1.2: the cached sample (at most 5 s old) - same fields as status, answered at once
                 case "open": return OnUi(() => { var p = arg.Length > 0 ? MainWindow.PageId(arg) : null; if (arg.Length > 0 && p == null) return "error no page called " + arg; ShowMain(p); return "ok"; });
                 case "menu": return OnUi(() => "ok " + Family.Json(new Dictionary<string, object> { { "app", "Tasks" }, { "items", MenuItems() } }));
                 case "invoke": return OnUi(() => Invoke(arg));
