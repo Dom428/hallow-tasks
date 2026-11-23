@@ -27,7 +27,7 @@ namespace HallowTasks.Tests
             Environment.SetEnvironmentVariable("HALLOW_TASKS_TESTDIR", Dir);
             // v1.2: a 5-minute kill timeout - a stuck suite fails instead of hanging
             new Thread(() => { Thread.Sleep(TimeSpan.FromMinutes(5)); Console.WriteLine("FAIL the suite took more than 5 minutes - stopped"); Console.WriteLine(pass + " passed, " + (fail + 1) + " failed"); Environment.Exit(3); }) { IsBackground = true }.Start();
-            try { Lists(); Groups(); Impact(); Detect(); Panel(); Keeper(); SafetyRules(); StartupBits(); StartupStoreTest(); Family(); Formats(); V11(); V12(); RealSampling(); RealControl(); PipeAndApp(); RealCopy(); V12Pipe(); if (!args.Contains("--quick")) OverheadCopy(); }
+            try { Lists(); Groups(); Impact(); Detect(); Panel(); Keeper(); SafetyRules(); StartupBits(); StartupStoreTest(); Family(); Formats(); V11(); V12(); RealSampling(); RealControl(); PipeAndApp(); RealCopy(); V12Pipe(); V13(); if (!args.Contains("--quick")) OverheadCopy(); }
             catch (Exception e) { fail++; Console.WriteLine("FAIL exception: " + e); }
             try { using (var k = Registry.CurrentUser.OpenSubKey(@"Software\HallowTasks")) if (k != null && k.SubKeyCount == 0 && k.ValueCount == 0) { k.Close(); Registry.CurrentUser.DeleteSubKey(@"Software\HallowTasks", false); } } catch { }
             try { if (Directory.Exists(Dir)) Directory.Delete(Dir, true); } catch { }

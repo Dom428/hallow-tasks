@@ -403,7 +403,7 @@ namespace HallowTasks
             if (p == null) return "That process has closed.";
             if (p.Pid == selfPid) return "That's Hallow Tasks itself - use Quit in its tray menu.";
             if (Known.IsAntiCheat(p.Name)) return "That's anti-cheat (" + p.Name + "). Leave it alone - games kick or ban you when it's touched.";
-            if ((game != null && game.Key == p.Key) || Known.IsGameName(p.Name, extraGames)) return "That's your game - Hallow Tasks never touches the game itself.";
+            if ((game != null && game.Key == p.Key) || Known.IsGameName(p.Name, extraGames)) return "That's your game - Hallow Tasks never touches it by itself, and priority / affinity / Efficiency stay off for games. If it hangs on exit, use Close game…";
             if (p.Pid == 0 || p.Pid == 4 || Known.IsCritical(p.Name)) return p.Name + " is part of Windows. Ending or changing it can crash Windows or sign you out, so Hallow Tasks won't.";
             if (Known.IsProtected(p, windowsDir)) return p.Name + " is a Windows system process. Hallow Tasks leaves those alone.";
             return null;

@@ -316,7 +316,7 @@ namespace HallowTasks
             var save = Ui.Btn("Save", () => { c.SetExtraGames(box.Text); Say("Saved " + c.S.ExtraGames.Count + " more game" + (c.S.ExtraGames.Count == 1 ? "" : "s") + "."); }, true);
             save.Margin = new Thickness(8, 0, 0, 0); DockPanel.SetDock(save, Dock.Right); row.Children.Add(save); row.Children.Add(box);
             g.Children.Add(row);
-            g.Children.Add(Ui.Muted("Never touched: the game itself and anti-cheat - " + string.Join(", ", new[] { "SGuard", "ACE", "EasyAntiCheat", "BattlEye (BEService)", "Vanguard (vgc)", "FACEIT", "nProtect", "XIGNCODE", "PunkBuster" }) + " and similar.", 11.5, 0));
+            g.Children.Add(Ui.Muted("Never touched by itself: the game (it only closes when you use Close game… and confirm). Never touched at all: anti-cheat - " + string.Join(", ", new[] { "SGuard", "ACE", "EasyAntiCheat", "BattlEye (BEService)", "Vanguard (vgc)", "FACEIT", "nProtect", "XIGNCODE", "PunkBuster" }) + " and similar.", 11.5, 0));
             var gc = Ui.Card(g); gc.Margin = new Thickness(0, 12, 0, 0); sp.Children.Add(gc);
             var b = Ui.Row(Ui.Btn("Check for updates", () => c.CheckForUpdate(true)), Ui.Btn("Open data folder", () => { if (Snap.On) return; try { Directory.CreateDirectory(TaskSettings.Dir); System.Diagnostics.Process.Start("explorer.exe", "\"" + TaskSettings.Dir + "\""); } catch { } }));
             b.Margin = new Thickness(0, 12, 0, 12); sp.Children.Add(b);

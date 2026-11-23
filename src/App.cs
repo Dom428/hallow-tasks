@@ -1,7 +1,8 @@
 ﻿// Hallow Tasks - a better Task Manager, Hallow style: processes grouped by app (CPU, RAM, GPU, GPU memory, disk, network
 // connections, a power hint, publisher and path), "What's slowing my game", live performance graphs, startup apps with an impact
 // estimate, and the family link. No admin needed. It samples once a second only while its window is open (not minimized), and
-// never touches a game or anti-cheat process. Ending, lowering or changing a process only happens when you click it.
+// never touches a game or anti-cheat process by itself. Ending, lowering or changing a process only happens when you click it; a
+// game only closes through "Close game..." (v1.3: ask nicely, then Force close if you confirm). Anti-cheat: never.
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -19,14 +20,14 @@ using WF = System.Windows.Forms;
 [assembly: AssemblyTitle("Hallow Tasks")]
 [assembly: AssemblyProduct("Hallow Tasks")]
 [assembly: AssemblyDescription("A better Task Manager, Hallow style")]
-[assembly: AssemblyVersion("1.2.1.0")]
-[assembly: AssemblyFileVersion("1.2.1.0")]
+[assembly: AssemblyVersion("1.3.0.0")]
+[assembly: AssemblyFileVersion("1.3.0.0")]
 
 namespace HallowTasks
 {
     public static class Program
     {
-        public const string Version = "1.2.1";
+        public const string Version = "1.3";
         [DllImport("user32.dll")] static extern bool SetProcessDpiAwarenessContext(IntPtr v);
 
         [STAThread]
@@ -113,6 +114,20 @@ namespace HallowTasks
             Snap.Save(Dialogs.InfoWindow("Hallow Tasks", Safety.WhyNot(new ProcInfo { Name = "SGuard64.exe", Pid = 5044 }, null, null, @"C:\Windows", 1), null), F("dialog-refused"), 460, 0);
             Snap.Save(Dialogs.ConfirmWindow("Stop Print Spooler?", "This needs admin: Windows will ask you first (UAC). Programs that use it may stop working until it runs again.", "Stop (admin)", false, null), F("dialog-service-admin"), 460, 0);
             Snap.Save(CrashNotice.Make(Path.Combine(dir, "example.txt")), F("crash"), 440, 0);
+            // v1.3 "Close game..." (made-up processes and a fake process layer): the confirm, the countdown, Force close, Windows refusing
+            c.SnapGame(true); for (int i = 0; i < 2; i++) c.SampleNow();
+            var dg = c.Last.Procs.FirstOrDefault(p => Known.IsGameName(p.Name, null));
+            if (dg != null)
+            {
+                var fc = (FakeGameCloser)c.Closer; fc.IgnoresClose.Add(dg.Pid);
+                var run = c.NewGameClose(dg);
+                Snap.Save(GameCloseWindow.Make(run, null), F("dialog-closegame"), 500, 0);
+                run.Ask(DateTime.Now.AddSeconds(-3)); Snap.Save(GameCloseWindow.Make(run, null), F("dialog-closegame-waiting"), 500, 0);
+                run.Tick(DateTime.Now.AddSeconds(30)); Snap.Save(GameCloseWindow.Make(run, null), F("dialog-closegame-force"), 500, 0);
+                fc.Denied.Add(dg.Pid); run.Force(); Snap.Save(GameCloseWindow.Make(run, null), F("dialog-closegame-denied"), 500, 0);
+                var ok = c.NewGameClose(dg); fc.Denied.Clear(); fc.Gone.Clear(); ok.Ask(DateTime.Now.AddSeconds(-11)); ok.Tick(DateTime.Now); ok.Force();
+                Snap.Save(GameCloseWindow.Make(ok, null), F("dialog-closegame-forced"), 500, 0);
+            }
         }
     }
     // the app: tray icon, family pipe, sampling, the game watch, actions, updates
@@ -123,7 +138,7 @@ namespace HallowTasks
         readonly Dispatcher ui;
         MainWindow main; WF.NotifyIcon tray; bool hubHosts, hubLists, quitting, balloonOwn;
         readonly ISampler sampler; readonly object sampleLock = new object();
-        public readonly IProcessControl Ctl; public readonly PriorityKeeper Keeper; public readonly GameWatch Watch = new GameWatch();
+        public readonly IProcessControl Ctl; public readonly IGameCloser Closer; public readonly PriorityKeeper Keeper; public readonly GameWatch Watch = new GameWatch();
         public readonly EcoKeeper Eco; public readonly HistoryStore Hist = new HistoryStore(); public HistoryLog HistLog; readonly AlertWatch alerts = new AlertWatch();
         public readonly NetPrecise Net = new NetPrecise(); public readonly IServiceSource Services;
         public readonly List<string[]> Notes = new List<string[]>();   // the quiet in-game alerts of this session: time, title, text
@@ -148,6 +163,7 @@ namespace HallowTasks
             bool real = snapMode && TaskSettings.TestDir != null && Environment.GetEnvironmentVariable("HALLOW_TASKS_SNAPREAL") == "1";
             sampler = fake && !real ? (ISampler)new FakeSampler() : new WindowsSampler();
             Ctl = fake ? (IProcessControl)new FakeControl() : new WindowsControl();
+            Closer = fake ? (IGameCloser)new FakeGameCloser() : new WindowsGameCloser();
             Keeper = new PriorityKeeper(Ctl); Eco = new EcoKeeper(Ctl);
             Services = fake ? (IServiceSource)new FakeServices() : new WindowsServices();
             Store = TaskSettings.TestDir != null || snapMode ? StartupStore.ForTest(@"Software\HallowTasks\Test-" + (TaskSettings.TestDir == null ? "snap" : Path.GetFileName(TaskSettings.TestDir.TrimEnd('\\')))) : StartupStore.Real();
@@ -347,6 +363,13 @@ namespace HallowTasks
             foreach (var m in g.Members.Where(x => x.Pid != SelfPid).OrderByDescending(x => x.CreateTime)) { if (!Same(m)) continue; var e = Ctl.Kill(m.Pid); if (e == null) n++; else errs.Add(m.Name + ": " + e); }
             Log("end task " + g.Title + ": " + n + " ended, " + errs.Count + " refused");
             return errs.Count == 0 ? null : string.Join("\n", errs.Distinct().Take(4));
+        }
+        // v1.3 "Close game...": the game process behind a row, or null (only a process tagged Game - never anti-cheat or a launcher)
+        public ProcInfo CloseGameTarget(AppGroup g, ProcInfo p) { return GameClose.Pick(g, p, Game, ExtraGames, SelfPid); }
+        public GameCloseRun NewGameClose(ProcInfo game)
+        {
+            game = Fresh(game);
+            return new GameCloseRun(game, GameDetect.Title(game, HubPlaying), Closer, () => Last == null ? null : Last.Procs, WindowsDir, SelfPid, Log);
         }
         // the process and everything it started (children first)
         public List<ProcInfo> Tree(ProcInfo root)

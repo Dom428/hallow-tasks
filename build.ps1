@@ -27,4 +27,9 @@ if ($Tests) {
     & "$fw\csc.exe" /nologo /optimize+ /target:winexe "/out:$d" (Join-Path $PSScriptRoot 'tests\Dummy.cs')
     if ($LASTEXITCODE -ne 0) { throw "Dummy build failed" }
     "Built $d"
+    # v1.3: a stand-in "game" with an off-screen window for the Close game tests (closes on WM_CLOSE, or ignores it)
+    $si = Join-Path $PSScriptRoot 'tests\StandIn.exe'
+    & "$fw\csc.exe" /nologo /optimize+ /target:winexe "/out:$si" "/reference:$fw\System.Windows.Forms.dll" "/reference:$fw\System.Drawing.dll" (Join-Path $PSScriptRoot 'tests\StandIn.cs')
+    if ($LASTEXITCODE -ne 0) { throw "StandIn build failed" }
+    "Built $si"
 }

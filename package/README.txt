@@ -16,6 +16,8 @@ WHAT IT DOES
 - Click a row for details: End task / End process tree (always asks first), priority, affinity
   (with a warning), open file location, search online (only when you click), scan with Microsoft
   Defender, copy details. Windows' own processes, your game and anti-cheat are refused with a reason.
+- Close game... (only for your game): asks it nicely to close, then - if it's still running and
+  you click Force close - ends it and its own helpers. Never anti-cheat or launchers.
 - What's slowing my game: while Delta Force, Discovery or a game Hallow Hub says you're playing
   runs, the other apps ranked by the CPU, GPU and disk they took over the last 10 seconds. Lower
   one to Below normal or Idle for as long as the game runs (it goes back when the game closes, or
@@ -48,6 +50,13 @@ GOOD TO KNOW
   network" the Network column counts each app's connections.
 - CPU temperature needs a kernel driver, so it isn't shown (same as Hallow Overlay).
 - Nothing is sent anywhere. Crash reports stay on this PC.
+
+WHAT'S NEW IN 1.3
+- Close game... for a game that hangs on exit (right-click it, or the details strip). It asks
+  the game nicely first and waits 10 s; only if it's still running and you click Force close
+  does it end the game and its own helpers. Never anti-cheat, Steam or other launchers, and
+  nothing automatic. If the game's anti-cheat stops Windows from ending it, Tasks says so and
+  tells you what to do (Stop in your Steam library, wait a minute, or sign out / restart).
 
 WHAT'S NEW IN 1.2.1
 - Right after Hallow Tasks starts, Remote and Hub get real CPU numbers (1.2 could show 0% for

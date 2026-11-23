@@ -391,7 +391,7 @@ namespace HallowTasks
             var nm = Ui.T(p != null ? p.Name : g.Title, 14.5, true); nm.Margin = new Thickness(8, 0, 0, 0); nm.VerticalAlignment = VerticalAlignment.Center; tl.Children.Add(nm);
             var why = p != null ? c.WhyNot(p) : c.WhyNot(g);
             if (g.IsAntiCheat || (p != null && Known.IsAntiCheat(p.Name))) { var pl = Ui.Pill(Known.AntiCheatTag, "Amber", "AmberBg"); pl.Margin = new Thickness(10, 0, 0, 0); tl.Children.Add(pl); }
-            else if (g.IsGame) { var pl = Ui.Pill("Your game — never touched", "Green", "GreenBg"); pl.Margin = new Thickness(10, 0, 0, 0); tl.Children.Add(pl); }
+            else if (g.IsGame) { var pl = Ui.Pill("Your game — never touched by itself", "Green", "GreenBg"); pl.Margin = new Thickness(10, 0, 0, 0); tl.Children.Add(pl); }
             else if (why != null) { var pl = Ui.Pill("Windows — protected", "Lilac", "LilacBg"); pl.Margin = new Thickness(10, 0, 0, 0); tl.Children.Add(pl); }
             left.Children.Add(tl);
             Func<string, string, UIElement> kv = (k, v) => { var t = new TextBlock { FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis }; t.Inlines.Add(new System.Windows.Documents.Run(k + "  ") { Foreground = Ui.R("Muted") }); t.Inlines.Add(new System.Windows.Documents.Run(v) { Foreground = Ui.R("Text") }); return t; };
@@ -409,6 +409,8 @@ namespace HallowTasks
             left.Children.Add(detailsNums);
             var btns = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, MaxWidth = 470 };
             Action<Button> add = b => { b.Margin = new Thickness(6, 0, 0, 6); btns.Children.Add(b); };
+            var closeGame = c.CloseGameTarget(g, p);   // v1.3: only for a process tagged Game (never anti-cheat or a launcher)
+            if (closeGame != null) add(Ui.Danger("Close game…", () => CloseGame(closeGame)));
             var end = Ui.Danger("End task", () => EndSelected(false)); end.IsEnabled = why == null; if (why != null) { end.ToolTip = why; ToolTipService.SetShowOnDisabled(end, true); } add(end);
             var tree = Ui.Btn(c.S.TreeView ? "End tree" : "End process tree", () => EndSelected(true)); tree.IsEnabled = why == null; if (why != null) { tree.ToolTip = why; ToolTipService.SetShowOnDisabled(tree, true); } add(tree);
             var prio = Ui.Btn("Priority...", () => PrioritySelected()); prio.IsEnabled = why == null; add(prio);
@@ -480,10 +482,23 @@ namespace HallowTasks
             foreach (var t in p != null ? new List<ProcInfo> { p } : g.Members.Where(q => q.Pid != c.SelfPid).ToList()) { var e = c.SetAffinity(t, m.Value); if (e != null) errs.Add(e); }
             Done(errs.Count == 0 ? null : errs[0], "Affinity set - until it closes.");
         }
+        // v1.3: the confirm dialog explains both steps; nothing happens until you click Close game in it
+        void CloseGame(ProcInfo game)
+        {
+            if (c.CloseGameTarget(null, game) == null) return;
+            var run = c.NewGameClose(game);
+            var w = GameCloseWindow.Make(run, null);
+            if (IsVisible) { w.Owner = this; w.WindowStartupLocation = WindowStartupLocation.CenterOwner; }
+            w.ShowDialog();
+            if (run.Now == GameCloseRun.State.Closed || run.Now == GameCloseRun.State.Forced) { selKey = null; selChild = null; Done(null, run.Title + (run.Now == GameCloseRun.State.Closed ? " closed." : " was force closed.")); }
+            else { detailsFor = null; RefreshProcesses(); }
+        }
         ContextMenu MenuFor(AppGroup g, ProcInfo p)
         {
             var m = new ContextMenu(); var why = p != null ? c.WhyNot(p) : c.WhyNot(g); var x = p ?? g.Main;
             Action<string, string, Action, bool> item = (label, icon, act, on) => { var mi = new MenuItem { Header = label, IsEnabled = on, Icon = icon == null ? null : Icons.Make(icon, 13, Ui.R("Text")) }; mi.Click += (s, e) => act(); m.Items.Add(mi); };
+            var closeGame = c.CloseGameTarget(g, p);   // v1.3: only for a process tagged Game (never anti-cheat or a launcher)
+            if (closeGame != null) { item("Close game…", "power-off", () => CloseGame(closeGame), true); m.Items.Add(new Separator()); }
             item("End task", "circle-xmark", () => EndSelected(false), why == null);
             item(c.S.TreeView ? "End tree" : "End process tree", "skull-crossbones", () => EndSelected(true), why == null);
             m.Items.Add(new Separator());

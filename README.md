@@ -4,8 +4,9 @@
 
 Part of the Hallow family of Windows apps. Hallow Tasks shows what's using your PC, grouped by app, and - while you play -
 **what's slowing your game**, with one click to lower it, put it in **Efficiency mode** or end it. **History** shows what spiked
-your PC and when, with the stutter moments of your game. It never touches the game itself or anti-cheat, never ends anything
-without asking, and needs **no admin** for normal use. Light and dark mode.
+your PC and when, with the stutter moments of your game. It never touches the game by itself and never touches anti-cheat, never
+ends anything without asking, and needs **no admin** for normal use. Light and dark mode. 1.3: **Close game...** for a game that
+hangs on exit.
 
 ![Processes grouped by app, sorted by Impact (made-up data)](docs/processes.png)
 
@@ -28,7 +29,20 @@ without asking, and needs **no admin** for normal use. Light and dark mode.
   click), **Scan with Defender** (through Hallow Guard when it offers a file scan; otherwise Defender's own `MpCmdRun -Scan
   -ScanType 3 -File ... -DisableRemediation`, the engine Guard uses), **Copy details**.
   Windows' core processes (csrss, lsass, svchost, dwm, explorer...), session-0 programs in the Windows folder, your game and
-  anti-cheat are **refused with a clear message**.
+  anti-cheat are **refused with a clear message** (priority, affinity and Efficiency mode stay off for games and anti-cheat).
+- **Close game...** (1.3) - for a game that hangs on exit. Only on a process tagged **Game** (never anti-cheat), in the right-click
+  menu and the details strip, and only when you click it: a dialog explains both steps first. **Step 1, ask nicely**: Windows asks
+  the game's windows to close (`WM_CLOSE`, what Task Manager's End task does for apps), then a 10-second countdown. **Step 2**, only if
+  it's still running and you click **Force close**: the game and its own helpers (in its install folder, or its crash / web helpers)
+  are ended. Anti-cheat (ACE / SGuard, Easy Anti-Cheat, BattlEye, Vanguard...), Steam, Battle.net and other launchers are never
+  touched. If Windows refuses (anti-cheat protects the game), it says so plainly - *"Delta Force's anti-cheat (ACE) protects the
+  game, so Windows won't let any app end it"* - and lists what you can do: the Stop button in your Steam library, wait a minute
+  (ACE often finishes its shutdown), or sign out / restart. It never tries to get around the protection: no admin, no debug
+  privilege, no driver, nothing done to anti-cheat. Nothing is automatic. Tasks' log gets one line: closed nicely, force closed
+  or denied.
+
+  ![Close game: the confirm (made-up data)](docs/close-game.png) ![Close game: Windows refuses because anti-cheat protects the game (made-up data)](docs/close-game-denied.png)
+
 - **What's slowing my game**: when a game runs - DeltaForceClient-Win64-Shipping.exe, Discovery-d.exe, the exe names you add in
   Settings, or whatever Hallow Hub says you're playing - a panel ranks the other apps by the CPU, GPU and disk they took over the
   last 10 seconds. Each row: **Below normal** or **Idle** for as long as the game runs (put back when the game closes, when you click
@@ -137,7 +151,7 @@ History spikes, stutters (CPU peaks and Overlay's live numbers), the 24-hour log
 shown); the precise-network protocol, a made-up kernel event, and the helper started **without** elevation (it must answer
 "denied"); and the overhead of a real test copy in the tray and with its window "open". 1.2 adds: the busy-app count, `quick`
 (fresh within 5 s over 14 s, answered from the cache, also with the real sampler), status.json kept fresh while asked, and no History
-from samples taken only for Remote / Hub; 1.2.1: right after start `quick` never answers with the first sample's zeros. The suite stops itself (and the ship script kills it) after 5 minutes.
+from samples taken only for Remote / Hub; 1.2.1: right after start `quick` never answers with the first sample's zeros. 1.3: Close game - who it's offered for (never anti-cheat or launchers, even listed as games), what Force close may end, the steps with a fake process layer (closed nicely, forced, access denied, the log), and **stand-ins the tests start in their own temp folder** (tests\StandIn.exe: an off-screen window that closes on WM_CLOSE or ignores it, with a helper, an anti-cheat-named and a launcher-named child that must stay untouched). The suite stops itself (and the ship script kills it) after 5 minutes.
 
 ## Credits
 

@@ -4,3 +4,4 @@ tests/TasksTests.exe
 tests/Dummy.exe
 tests/out/
 package/HallowTasks.exe
+tests/StandIn.exe
