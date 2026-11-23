@@ -2,6 +2,8 @@
 // window that never takes the focus or shows in the taskbar), so WM_CLOSE has something to close.
 //   StandIn.exe close  <seconds> [child.exe ...]   closes when asked (WM_CLOSE)
 //   StandIn.exe ignore <seconds> [child.exe ...]   ignores WM_CLOSE (a game that hangs on exit) - only TerminateProcess ends it
+//   StandIn.exe hang   <seconds>                   1.4: stops reading its messages right after its window shows ("Not responding"
+//                                                  after 5 s) - an app that hangs; only TerminateProcess ends it before <seconds>
 // Each child (a copy of Dummy.exe) is started first with <seconds>, so the stand-in has a process tree like a game.
 // It always quits by itself after <seconds> (at most 10 minutes), so nothing is left behind.
 using System;
@@ -29,8 +31,10 @@ static class StandIn
     [STAThread]
     static void Main(string[] a)
     {
-        bool ignore = a.Length > 0 && a[0] == "ignore"; int secs = 60; if (a.Length > 1) int.TryParse(a[1], out secs);
+        bool ignore = a.Length > 0 && a[0] == "ignore", hang = a.Length > 0 && a[0] == "hang"; int secs = 60; if (a.Length > 1) int.TryParse(a[1], out secs);
         for (int i = 2; i < a.Length; i++) Process.Start(new ProcessStartInfo(a[i], secs.ToString()) { UseShellExecute = false, CreateNoWindow = true });
-        Application.Run(new Game(ignore, secs));
+        var g = new Game(ignore, secs);
+        if (hang) g.Shown += (s, e) => g.BeginInvoke(new Action(() => { System.Threading.Thread.Sleep(Math.Max(1, Math.Min(600, secs)) * 1000); Environment.Exit(0); }));
+        Application.Run(g);
     }
 }

@@ -25,6 +25,7 @@ namespace HallowTasks
         public int Conns = -1;            // open TCP connections (-1 = not counted)
         public double NetSend = -1, NetRecv = -1;   // bytes/s - only with the optional "Precise network" helper (admin, ETW); -1 = not known
         public bool HasWindow;            // has a visible top-level window (an "app" in Task Manager's words)
+        public bool Hung;                 // 1.4: one of its windows is "Not responding" (IsHungAppWindow)
         public string Description, Company, Signer;   // from the file (filled in later, in the background)
         public bool? Signed;              // valid Authenticode signature (null = not checked yet / no file)
         public string Key { get { return Pid + ":" + CreateTime; } }
@@ -40,6 +41,7 @@ namespace HallowTasks
         public double Cpu, Gpu, DiskRead, DiskWrite; public long Ram, GpuMem; public int Conns = -1; public double NetBytes = -1;
         public double Impact; public string Power;
         public bool IsGame, IsAntiCheat, IsProtected;
+        public bool Hung { get { return Members.Any(m => m.Hung); } }   // 1.4: "Not responding"
         public ProcInfo Main { get { return Members.Count == 0 ? null : Members.FirstOrDefault(m => m.HasWindow) ?? Members.OrderBy(m => m.CreateTime).First(); } }
         public string Path { get { var m = Main; return m == null ? null : Members.Select(x => x.Path).FirstOrDefault(p => p != null); } }
         public string Publisher { get { return Members.Select(x => x.Signer ?? x.Company).FirstOrDefault(p => !string.IsNullOrEmpty(p)); } }
@@ -510,6 +512,7 @@ namespace HallowTasks
             if (slowEvent) why = (why.Length > 0 ? why + "; " : "") + "Windows says it slowed down startup";
             return imp;
         }
+        public static string Secs(int ms) { return ms < 0 ? "-" : ms < 950 ? ms + " ms" : (ms / 1000.0).ToString(ms < 9950 ? "0.0" : "0", System.Globalization.CultureInfo.InvariantCulture) + " s"; }
         public static int Rank(string impact) { switch (impact) { case "High": return 0; case "Medium": return 1; case "Low": return 2; case "Not running": return 3; default: return 4; } }
         // "C:\x\app.exe" --tray  ->  app ; rundll32-style commands give the first exe
         public static string ExeOf(string command)

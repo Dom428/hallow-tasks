@@ -258,9 +258,14 @@ namespace HallowTasks
             b.Children.Add(Ui.Switch("Keep a 24-hour log on disk (one line a minute in the data folder, at most about 1 MB)", c.S.HistoryLog, on => c.SetHistoryLog(on)));
             b.Children.Add(Ui.Switch("Quiet alerts while you play: a note through Hallow Hub when a background app is busy (never a pop-up over the game)", c.S.Alerts, on => { c.S.Alerts = on; c.S.Save(); }));
             var row = new WrapPanel { Margin = new Thickness(52, 2, 0, 4) };
-            Func<string, int, TextBox> num = (label, v) => { var l = Ui.Muted(label, 12); l.VerticalAlignment = VerticalAlignment.Center; l.Margin = new Thickness(0, 0, 6, 0); row.Children.Add(l); var f = Ui.Field(v.ToString(), 56); f.Margin = new Thickness(0, 0, 14, 0); row.Children.Add(f); return f; };
-            var cpu = num("CPU over", c.S.AlertCpu); var gpu = num("% or GPU over", c.S.AlertGpu); var secs = num("% for more than", c.S.AlertSeconds);
-            var sl = Ui.Muted("seconds", 12); sl.VerticalAlignment = VerticalAlignment.Center; sl.Margin = new Thickness(0, 0, 14, 0); row.Children.Add(sl);
+            // 1.4: "25%" - the % right after the number, no space
+            Func<string, int, string, TextBox> num = (label, v, unit) =>
+            {
+                var l = Ui.Muted(label, 12); l.VerticalAlignment = VerticalAlignment.Center; l.Margin = new Thickness(0, 0, 6, 0); row.Children.Add(l);
+                var f = Ui.Field(v.ToString(), 48); f.Margin = new Thickness(0); row.Children.Add(f);
+                var u = Ui.Muted(unit, 12); u.VerticalAlignment = VerticalAlignment.Center; u.Margin = new Thickness(unit == "%" ? 1 : 6, 0, 14, 0); row.Children.Add(u); return f;
+            };
+            var cpu = num("CPU over", c.S.AlertCpu, "%"); var gpu = num("or GPU over", c.S.AlertGpu, "%"); var secs = num("for more than", c.S.AlertSeconds, "seconds");
             row.Children.Add(Ui.Btn("Save", () =>
             {
                 int a, g, s; if (!int.TryParse(cpu.Text, out a) || !int.TryParse(gpu.Text, out g) || !int.TryParse(secs.Text, out s)) { Say("Numbers only, please."); return; }

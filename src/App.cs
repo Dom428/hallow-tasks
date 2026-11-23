@@ -3,6 +3,8 @@
 // estimate, and the family link. No admin needed. It samples once a second only while its window is open (not minimized), and
 // never touches a game or anti-cheat process by itself. Ending, lowering or changing a process only happens when you click it; a
 // game only closes through "Close game..." (v1.3: ask nicely, then Force close if you confirm). Anti-cheat: never.
+// 1.4: "Not responding" apps (tag + Close with the same safe flow), Startup apps switched Task Manager's way (StartupApproved), and
+// Game boost (lower / Efficiency / close what's using the PC before or while you play, all put back after the game).
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -20,14 +22,14 @@ using WF = System.Windows.Forms;
 [assembly: AssemblyTitle("Hallow Tasks")]
 [assembly: AssemblyProduct("Hallow Tasks")]
 [assembly: AssemblyDescription("A better Task Manager, Hallow style")]
-[assembly: AssemblyVersion("1.3.0.0")]
-[assembly: AssemblyFileVersion("1.3.0.0")]
+[assembly: AssemblyVersion("1.4.0.0")]
+[assembly: AssemblyFileVersion("1.4.0.0")]
 
 namespace HallowTasks
 {
     public static class Program
     {
-        public const string Version = "1.3";
+        public const string Version = "1.4";
         [DllImport("user32.dll")] static extern bool SetProcessDpiAwarenessContext(IntPtr v);
 
         [STAThread]
@@ -128,6 +130,22 @@ namespace HallowTasks
                 var ok = c.NewGameClose(dg); fc.Denied.Clear(); fc.Gone.Clear(); ok.Ask(DateTime.Now.AddSeconds(-11)); ok.Tick(DateTime.Now); ok.Force();
                 Snap.Save(GameCloseWindow.Make(ok, null), F("dialog-closegame-forced"), 500, 0);
             }
+            // v1.4: a "Not responding" app (made-up Notepad), its Close dialog, Game boost with a few things boosted
+            c.SnapGame(false); c.SampleNow(); w.Show("processes"); w.SnapSelect("exe:notepad", false); w.Refresh(); Snap.Save(w, F("processes-hung"), 1300, 800);
+            var np = c.Last.Procs.FirstOrDefault(p => p.Hung);
+            if (np != null)
+            {
+                var fc2 = (FakeGameCloser)c.Closer; fc2.IgnoresClose.Add(np.Pid);
+                var ar = c.NewAppClose(np); Snap.Save(GameCloseWindow.Make(ar, null), F("dialog-closeapp"), 500, 0);
+                ar.Ask(DateTime.Now.AddSeconds(-10)); ar.Tick(DateTime.Now); Snap.Save(GameCloseWindow.Make(ar, null), F("dialog-closeapp-force"), 500, 0);
+            }
+            c.SnapGame(true); for (int i = 0; i < 2; i++) c.SampleNow();
+            var dc = c.Groups.FirstOrDefault(g => g.Key == "discord"); if (dc != null) c.BoostLower(dc, Prio.BelowNormal);
+            var ob2 = c.Groups.FirstOrDefault(g => g.Key == "obs"); if (ob2 != null) c.BoostEco(ob2);
+            var sp2 = c.Groups.FirstOrDefault(g => g.Key == "spotify"); if (sp2 != null) { ((FakeGameCloser)c.Closer).Gone.Remove(4800); c.BoostClose(sp2, true); }
+            var ch = c.Groups.FirstOrDefault(g => g.Key == "chrome"); if (ch != null) { foreach (var m in ch.Members) ((FakeGameCloser)c.Closer).IgnoresClose.Add(m.Pid); c.BoostClose(ch, false); c.Boost.Tick(DateTime.Now.AddSeconds(11)); }
+            c.S.BoostProfile = c.Boost.Done.ToList(); c.S.BoostAuto = true;
+            w.Show("boost"); w.Refresh(); Snap.Save(w, F("boost-active"), 1300, 800);
         }
     }
     // the app: tray icon, family pipe, sampling, the game watch, actions, updates
@@ -143,6 +161,7 @@ namespace HallowTasks
         public readonly NetPrecise Net = new NetPrecise(); public readonly IServiceSource Services;
         public readonly List<string[]> Notes = new List<string[]>();   // the quiet in-game alerts of this session: time, title, text
         public readonly StartupStore Store; readonly IStartupSource startupSrc;
+        public readonly HungWatch Hung = new HungWatch(); public readonly BoostEngine Boost;   // 1.4
         readonly List<string> log = new List<string>();
         public readonly int SelfPid = Process.GetCurrentProcess().Id;
         public string WindowsDir { get { return sampler.WindowsDir; } }
@@ -161,13 +180,15 @@ namespace HallowTasks
             bool fake = snapMode || TaskSettings.Fake;
             // developer check only (a test folder + HALLOW_TASKS_SNAPREAL=1): --snap with this PC's real processes, read-only (the control stays fake)
             bool real = snapMode && TaskSettings.TestDir != null && Environment.GetEnvironmentVariable("HALLOW_TASKS_SNAPREAL") == "1";
-            sampler = fake && !real ? (ISampler)new FakeSampler() : new WindowsSampler();
+            sampler = fake && !real ? (ISampler)new FakeSampler { HungDemo = snapMode } : new WindowsSampler();
             Ctl = fake ? (IProcessControl)new FakeControl() : new WindowsControl();
             Closer = fake ? (IGameCloser)new FakeGameCloser() : new WindowsGameCloser();
             Keeper = new PriorityKeeper(Ctl); Eco = new EcoKeeper(Ctl);
             Services = fake ? (IServiceSource)new FakeServices() : new WindowsServices();
             Store = TaskSettings.TestDir != null || snapMode ? StartupStore.ForTest(@"Software\HallowTasks\Test-" + (TaskSettings.TestDir == null ? "snap" : Path.GetFileName(TaskSettings.TestDir.TrimEnd('\\')))) : StartupStore.Real();
-            startupSrc = fake ? (IStartupSource)new FakeStartup() : new WindowsStartup(Store.RunPath);
+            // 1.4: the test copy reads (and switches) a fake registry root and temp folders - never the real startup entries
+            startupSrc = fake ? (IStartupSource)new FakeStartup() : new WindowsStartup(TaskSettings.TestDir != null ? StartupPaths.ForTest(Store.RunPath.Substring(0, Store.RunPath.Length - 4), Path.Combine(TaskSettings.Dir, "startup-test")) : StartupPaths.Real());
+            Boost = new BoostEngine(Ctl, Eco, Closer, fake ? (IAppLauncher)new FakeLauncher() : new WindowsLauncher(), fake ? (Func<int, string>)(pid => null) : ProcCmd.Read, Log);
             if (snapMode) return;
             Family.Serve("Tasks", Command);
             sampleTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) }; sampleTimer.Tick += (s, e) => SampleAsync();
@@ -249,6 +270,10 @@ namespace HallowTasks
             if (HistLog != null && hp != null) HistLog.Push(hp);
             if (S.Alerts) foreach (var m in alerts.Check(Groups, game, s.At, S.AlertCpu, S.AlertGpu, S.AlertSeconds, SelfPid)) QuietNote(m[0], m[1]);
             if (Eco.On.Count > 0) Eco.On.RemoveAll(x => !s.Procs.Any(p => p.Pid == x.Pid && p.CreateTime == x.Created));
+            // 1.4: "Not responding" for 15 s: one quiet note (held while you play); the boost's "asked to close" countdowns
+            foreach (var hp2 in Hung.Due(s.Procs, game, ExtraGames, sampler.WindowsDir, SelfPid, s.At))
+                if (S.HungNotes) QuietNote(Known.Friendly(hp2) + " isn't responding", "It hasn't responded for 15 s. Hallow Tasks can close it: Processes > select it > Close.");
+            if (Boost.Closed.Count > 0) Boost.Tick(s.At);
             CacheQuick(s, false);
             var h = Sampled; if (h != null) h();
         }
@@ -276,11 +301,23 @@ namespace HallowTasks
         {
             bool was = Game != null;
             Game = game; GameTitle = GameDetect.Title(game, HubPlaying);
-            if (game != null && !was) { GameSince = DateTime.Now; Log("game: " + game.Name); }
+            if (game != null && !was)
+            {
+                GameSince = DateTime.Now; Log("game: " + game.Name);
+                // 1.4: your Boost profile, only if you ticked "apply when a game starts" (closing only asks nicely - never Force close)
+                if (S.BoostAuto && S.BoostProfile.Count > 0 && !SnapMode)
+                {
+                    int n = Boost.Apply(S.BoostProfile, Groups, game, ExtraGames, S.BoostSkip, WindowsDir, SelfPid, DateTime.Now);
+                    if (n > 0) QuietNote("Boost profile applied", n + " app" + (n == 1 ? "" : "s") + " boosted for " + (GameDetect.Title(game, HubPlaying) ?? "your game") + " - everything goes back when the game closes.");
+                }
+            }
+            if (game != null && Boost.Active) Boost.SawGame = true;
             if (game == null && was) { GameSince = null; Log("game closed"); GameEnded(); Hist.GameEnded(); }
         }
         void GameEnded()
         {
+            // 1.4: Game boost goes back after the game: priorities, Efficiency, and the apps you ticked "reopen after"
+            if (Boost.Active && Boost.SawGame) { var msg = Boost.Restore(true); Notify("Game boost undone", msg); }
             if (Keeper.Lowered.Count == 0) return;
             int n = Keeper.RestoreAll(); Log("game closed: " + n + " priorities put back");
             if (n > 0) Notify("Priorities are back to normal", "The game closed, so the " + n + " app" + (n == 1 ? "" : "s") + " you lowered are back where they were.");
@@ -330,6 +367,7 @@ namespace HallowTasks
         {
             if (quitting) return; quitting = true;
             try { if (Keeper.Lowered.Count > 0) Log("quit: " + Keeper.RestoreAll() + " priorities put back"); } catch { }
+            try { if (Boost.Active) Boost.Restore(false); } catch { }   // priorities and Efficiency back; nothing is started while quitting
             try { Net.Stop(); } catch { }
             try { if (HistLog != null) HistLog.Flush(); } catch { }
             if (hotkey != null) hotkey.Dispose();
@@ -371,6 +409,29 @@ namespace HallowTasks
             game = Fresh(game);
             return new GameCloseRun(game, GameDetect.Title(game, HubPlaying), Closer, () => Last == null ? null : Last.Procs, WindowsDir, SelfPid, Log);
         }
+        // v1.4 Close for a "Not responding" app: the hung process behind a row, or null (never a game, anti-cheat, launcher, Windows or Hallow)
+        public ProcInfo CloseAppTarget(AppGroup g, ProcInfo p) { return HungClose.Pick(g, p, Game, ExtraGames, WindowsDir, SelfPid); }
+        public GameCloseRun NewAppClose(ProcInfo app)
+        {
+            app = Fresh(app);
+            return new GameCloseRun(app, Known.Friendly(app), Closer, () => Last == null ? null : Last.Procs, WindowsDir, SelfPid, Log, true, Game, ExtraGames);
+        }
+        // ---------------- v1.4 Game boost (each action only when you click it; Force close only on its own click)
+        public List<BoostRow> BoostRows() { return HallowTasks.Boost.List(Groups, Game, ExtraGames, S.BoostSkip, WindowsDir, SelfPid, 14); }
+        string BoostWhy(AppGroup g) { return HallowTasks.Boost.WhyNot(g, Game, ExtraGames, S.BoostSkip, WindowsDir, SelfPid); }
+        public string BoostLower(AppGroup g, Prio to) { var w = BoostWhy(g); return w ?? Boost.Lower(g, to, SelfPid); }
+        public string BoostEco(AppGroup g) { var w = BoostWhy(g); return w ?? Boost.Efficiency(g, SelfPid); }
+        public string BoostClose(AppGroup g, bool reopen) { var w = BoostWhy(g); return w ?? Boost.Close(g, reopen, DateTime.Now, SelfPid); }
+        public string BoostForce(string key) { return Boost.Force(key, Game, ExtraGames, WindowsDir, SelfPid); }
+        public string BoostRestore() { return Boost.Restore(true); }
+        public void BoostSkip(AppGroup g) { var e = HallowTasks.Boost.Exe(g); if (e.Length > 0 && !S.BoostSkip.Contains(e)) { S.BoostSkip.Add(e); S.Save(); } }
+        public void SaveBoostProfile() { if (Boost.Done.Count > 0) { S.BoostProfile = Boost.Done.Select(d => new BoostItem { Exe = d.Exe, Action = d.Action, Reopen = d.Reopen, Title = d.Title }).ToList(); S.Save(); } }
+        public void SetBoostSkip(string text)
+        {
+            S.BoostSkip = (text ?? "").Split(new[] { ',', ';', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries).Select(x => Known.Bare(x.Trim())).Where(x => x.Length > 0).Distinct().Take(50).ToList();
+            S.Save();
+        }
+
         // the process and everything it started (children first)
         public List<ProcInfo> Tree(ProcInfo root)
         {
@@ -541,7 +602,7 @@ namespace HallowTasks
         }
 
         // ---------------- startup apps
-        public List<StartupItem> StartupItems; public List<DisabledEntry> Disabled = new List<DisabledEntry>(); public bool StartupReading; HashSet<string> slow;
+        public List<StartupItem> StartupItems; public List<DisabledEntry> Disabled = new List<DisabledEntry>(); public bool StartupReading; Dictionary<string, int> boot;
         public event Action StartupChanged;
         public void RefreshStartup()
         {
@@ -551,27 +612,29 @@ namespace HallowTasks
             {
                 List<StartupItem> l; List<DisabledEntry> d;
                 try { l = startupSrc.Read(); } catch { l = new List<StartupItem>(); }
-                try { if (slow == null) slow = startupSrc.SlowExes(); } catch { slow = new HashSet<string>(); }
+                try { if (boot == null) boot = startupSrc.BootTimes(); } catch { boot = new Dictionary<string, int>(); }
                 if (procs == null) { try { lock (sampleLock) procs = sampler.Take().Procs; } catch { procs = new List<ProcInfo>(); } }
-                StartupRate.Apply(l, procs, slow, DateTime.Now, p => p.CpuTime / 1e7);
+                StartupRate.Apply(l, procs, boot, DateTime.Now, p => p.CpuTime / 1e7);
                 d = Store.List();
-                if (SnapMode) d = new List<DisabledEntry> { new DisabledEntry { Id = "OneDrive", Name = "OneDrive", Data = @"""C:\Users\Alex\AppData\Local\Microsoft\OneDrive\OneDrive.exe"" /background", When = DateTime.Now.AddDays(-2).ToString("o") } };
                 Action fin = () => { StartupItems = l.OrderBy(x => StartupImpact.Rank(x.Impact)).ThenBy(x => x.Name).ToList(); Disabled = d; StartupReading = false; var h = StartupChanged; if (h != null) h(); };
                 if (SnapMode) fin(); else ui.BeginInvoke(fin);
             };
             if (SnapMode) work(); else new Thread(() => work()) { IsBackground = true, Name = "startup", Priority = ThreadPriority.BelowNormal }.Start();
         }
-        public string DisableStartup(StartupItem i)
+        // 1.4: Disable / Enable exactly like Task Manager: Windows' StartupApproved switch for your own entries (reversible, nothing deleted)
+        public string SetStartupOn(StartupItem i, bool on)
         {
-            if (!i.Mine) return "Only your own startup entries can be turned off here - this one is for all users. Use Windows' Startup apps page.";
-            if (SnapMode || TaskSettings.Fake) { Log("disable startup " + i.Name); return null; }
-            var e = Store.Disable(i.Name); Log("disable startup " + i.Name + ": " + (e ?? "ok")); RefreshStartup(); return e;
+            if (i.Kind == "task") return "Scheduled tasks are switched in Windows' Task Scheduler.";
+            if (!i.Mine) return "This one starts for all users, so Windows needs admin to change it. Open Windows' Startup apps page to switch it there.";
+            var e = startupSrc.SetOn(i, on); Log((on ? "enable" : "disable") + " startup " + i.Name + ": " + (e ?? "ok"));
+            if (e == null) RefreshStartup(); return e;
         }
         public string RestoreStartup(DisabledEntry d)
         {
             var e = Store.Restore(d.Id); Log("restore startup " + d.Name + ": " + (e ?? "ok")); RefreshStartup(); return e;
         }
         public void OpenWindowsStartup() { if (TaskSettings.TestDir != null || SnapMode) return; try { Process.Start("ms-settings:startupapps"); } catch { } }
+        public void OpenTaskScheduler() { if (TaskSettings.TestDir != null || SnapMode) return; try { Process.Start("taskschd.msc"); } catch { } }
 
         // ---------------- settings
         const string RunName = "HallowTasks";
@@ -699,6 +762,7 @@ namespace HallowTasks
             if (!Dialogs.Confirm(main, "Install Hallow Tasks v" + pending.Version.ToString(2) + "?", "It downloads from GitHub, checks the file and puts the new version in place. Your settings stay." + (Keeper.Lowered.Count > 0 ? " Apps you lowered go back to normal first." : ""), "Update", false)) return;
             var r = pending; Say("Updating...");
             if (Keeper.Lowered.Count > 0) Keeper.RestoreAll();
+            if (Boost.Active) Boost.Restore(false);
             new Thread(() => { var err = Updater.Install(r); ui.BeginInvoke(new Action(() => Say(err ?? "Installing the update..."))); }) { IsBackground = true }.Start();
         }
         void ShowCrashNotice()
@@ -785,6 +849,7 @@ namespace HallowTasks
             d["hotkey"] = S.Hotkey; d["startsWithWindows"] = StartsWithWindows();
             d["look"] = Program.Light ? "light" : "dark"; d["history"] = Hist.Count; d["historyInTray"] = S.HistoryInTray; d["historyLog"] = S.HistoryLog; d["alerts"] = S.Alerts;
             d["efficiency"] = Eco.On.Count; d["preciseNetwork"] = Net.On;
+            d["notResponding"] = Hung.Count; d["boosted"] = Boost.Active; d["boostAuto"] = S.BoostAuto;   // 1.4
             d["lastCrash"] = Crash.LastTime() == null ? null : Family.Time(Crash.LastTime().Value);
             if (TaskSettings.TestDir != null) { lock (log) d["log"] = log.ToArray(); d["notifications"] = Notifications; }
             return d;
@@ -834,6 +899,7 @@ namespace HallowTasks
         {
             return new List<object> {
                 new Dictionary<string, object> { { "id", "game" }, { "label", "What's slowing my game" } },
+                new Dictionary<string, object> { { "id", "boost" }, { "label", "Game boost" } },
                 new Dictionary<string, object> { { "id", "performance" }, { "label", "Performance" } },
                 new Dictionary<string, object> { { "id", "history" }, { "label", "History - what spiked my PC" } },
                 new Dictionary<string, object> { { "id", "startup" }, { "label", "Startup apps" } },
@@ -846,6 +912,7 @@ namespace HallowTasks
             switch (id)
             {
                 case "game": ShowMain("game"); return "ok";
+                case "boost": ShowMain("boost"); return "ok";
                 case "performance": ShowMain("performance"); return "ok";
                 case "startup": ShowMain("startup"); return "ok";
                 case "history": ShowMain("history"); return "ok";

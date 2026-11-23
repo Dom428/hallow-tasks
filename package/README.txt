@@ -39,7 +39,11 @@ WHAT IT DOES
 - Precise network (optional, needs admin): bytes per second per app, through a small helper
   that Windows asks you about (UAC) each time; it stops when Hallow Tasks closes.
 - Light and dark mode: follows Hallow Toolkit's setting, or pick one in Settings > Look.
-- Startup apps with an impact estimate. Your own startup entries can be disabled and restored.
+- Startup apps (Run keys, Startup folders, your sign-in tasks) with an impact estimate and the
+  time Windows measured at boot. Disable / Enable your own entries exactly like Task Manager.
+- Not responding apps are tagged, with a one-click Close (asks nicely, then Force close if you click).
+- Game boost: lower, put in Efficiency mode or close what's using your PC before or while you play;
+  it all goes back after the game, and the apps you ticked reopen.
 - Hallow family: Hallow Hub's tray menu lists it, the Hallow accent colour, status for other apps.
 - Ctrl+Alt+T opens it (off until you turn it on in Settings). Ctrl+Shift+Esc stays Windows' own.
 
@@ -50,6 +54,19 @@ GOOD TO KNOW
   network" the Network column counts each app's connections.
 - CPU temperature needs a kernel driver, so it isn't shown (same as Hallow Overlay).
 - Nothing is sent anywhere. Crash reports stay on this PC.
+
+WHAT'S NEW IN 1.4
+- Not responding: apps that stop responding get a red tag and a Close button - it asks the app
+  nicely first, then offers Force close (only if you click it). Never games (they keep Close
+  game...), anti-cheat, launchers, Windows or Hallow. An optional quiet note after 15 s, held
+  while you play.
+- Startup apps: Disable and Enable now work exactly like Task Manager (Windows' own switch,
+  nothing deleted), with "off since", your scheduled sign-in tasks, and the time Windows
+  measured at boot when Windows shows it. All-users entries open Windows' Startup apps page.
+- Game boost: what's using CPU, RAM, GPU or network right now - lower it, Efficiency mode, or
+  close it (tick "reopen after"). Priorities go back and ticked apps reopen after the game.
+  Nothing automatic unless you save a Boost profile and tick "apply when a game starts".
+- Percentages are written 45% everywhere.
 
 WHAT'S NEW IN 1.3
 - Close game... for a game that hangs on exit (right-click it, or the details strip). It asks

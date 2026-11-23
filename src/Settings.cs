@@ -39,8 +39,13 @@ namespace HallowTasks
         [DataMember] public int AlertCpu = 25, AlertGpu = 25, AlertSeconds = 20;
         [DataMember] public bool ControlMicrosoftServices;  // Services: Microsoft's are "leave alone" unless this is on
         [DataMember] public bool TreeView;                  // Processes: parent -> children instead of app groups
+        // 1.4
+        [DataMember] public bool HungNotes = true;          // a quiet note (through Hub) when an app has been "Not responding" for 15 s - held while you play
+        [DataMember] public List<string> BoostSkip;         // exe names Game boost never lists
+        [DataMember] public List<BoostItem> BoostProfile;   // a saved Boost profile (what to lower / put in Efficiency mode / close)
+        [DataMember] public bool BoostAuto;                 // apply the Boost profile when a game starts - off until you tick it
 
-        [OnDeserializing] void Defaults(StreamingContext c) { UseHallowIcon = true; UseHallowAccent = true; Sort = "impact"; Look = "hallow"; HistoryInTray = true; AlertCpu = 25; AlertGpu = 25; AlertSeconds = 20; }
+        [OnDeserializing] void Defaults(StreamingContext c) { UseHallowIcon = true; UseHallowAccent = true; Sort = "impact"; Look = "hallow"; HistoryInTray = true; AlertCpu = 25; AlertGpu = 25; AlertSeconds = 20; HungNotes = true; }
 
         public static TaskSettings Load()
         {
@@ -60,6 +65,8 @@ namespace HallowTasks
         {
             if (ExtraGames == null) ExtraGames = new List<string>();
             ExtraGames.RemoveAll(string.IsNullOrWhiteSpace);
+            if (BoostSkip == null) BoostSkip = new List<string>(); BoostSkip.RemoveAll(string.IsNullOrWhiteSpace);
+            if (BoostProfile == null) BoostProfile = new List<BoostItem>(); BoostProfile.RemoveAll(b => b == null || string.IsNullOrEmpty(b.Exe) || string.IsNullOrEmpty(b.Action));
             if (string.IsNullOrEmpty(Sort)) Sort = "impact";
             if (Look != "light" && Look != "dark") Look = "hallow";
             AlertCpu = Math.Max(5, Math.Min(100, AlertCpu)); AlertGpu = Math.Max(5, Math.Min(100, AlertGpu)); AlertSeconds = Math.Max(5, Math.Min(600, AlertSeconds));

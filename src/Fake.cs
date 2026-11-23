@@ -10,6 +10,7 @@ namespace HallowTasks
     {
         public string WindowsDir { get { return @"C:\Windows"; } }
         public bool GameOn = true; int n;
+        public bool HungDemo;   // 1.4 --snap: the made-up Notepad is "Not responding"
         static readonly long Boot = DateTime.Now.AddHours(-6).ToFileTime();
         // pid, parent, exe, path, window, cpu, ram MB, gpu, gpu MB, disk KB/s, conns, description, publisher, signed (1/0/-1)
         static readonly object[][] Rows = {
@@ -54,6 +55,7 @@ namespace HallowTasks
             new object[] { 7100, 1240, "SearchIndexer.exe", @"C:\Windows\System32\SearchIndexer.exe", false, 3.1, 46, 0.0, 0, 5200, 0, "Microsoft Windows Search Indexer", "Microsoft Windows", 1 },
             new object[] { 7200, 3620, "updsvc.exe", @"C:\Users\Alex\AppData\Roaming\syshelper\updsvc.exe", false, 0.5, 22, 0.0, 0, 40, 1, null, null, 0 },
             new object[] { 7300, 1032, "RtkAudUService64.exe", @"C:\Windows\System32\DriverStore\FileRepository\realtek\RtkAudUService64.exe", false, 0.1, 6, 0.0, 0, 0, 0, "Realtek HD Audio Universal Service", "Realtek Semiconductor Corp.", 1 },
+            new object[] { 7400, 3620, "notepad.exe", @"C:\Windows\System32\notepad.exe", true, 0.0, 22, 0.0, 0, 0, 0, "Notepad", "Microsoft Windows", 1 },   // 1.4: "Not responding" in --snap
         };
         public bool Gaming { get { return GameOn; } }
         public Sample Take()
@@ -72,6 +74,7 @@ namespace HallowTasks
                     Description = (string)r[11], Company = (string)r[12], Signer = (int)r[13] == 1 ? (string)r[12] : null, Signed = (int)r[13] == 1 ? true : (int)r[13] == 0 ? false : (bool?)null,
                     Session = pid < 3000 || pid == 7000 || pid == 7300 ? 0 : 1, CreateTime = Boot + pid * 10000000L, Threads = 8, CpuTime = (long)((double)r[5] / 100 * 16 * 6 * 3600 * 1e7 * 0.05) };   // mostly idle over 6 hours
                 if (p.Path == null && pid > 4) p.Session = 0;
+                p.Hung = HungDemo && exe == "notepad.exe";
                 s.Procs.Add(p);
             }
             var sys = s.Sys; sys.GpuKnown = true; sys.GpuName = "NVIDIA GeForce RTX 4070";

@@ -63,7 +63,7 @@ namespace HallowTasks.Tests
         static Sample S(DateTime at, double cpu, double gpu, params ProcInfo[] procs) { var s = new Sample { At = at, Sys = new SysStats { Cpu = cpu, Gpu3D = gpu, GpuKnown = true, RamTotal = 16L << 30, RamUsed = 8L << 30 } }; s.Procs.AddRange(procs); return s; }
         static void HistoryTests()
         {
-            var t0 = new DateTime(2026, 11, 21, 20, 0, 0);
+            var tn = DateTime.Now.AddMinutes(-30); var t0 = new DateTime(tn.Year, tn.Month, tn.Day, tn.Hour, tn.Minute, 0);   // 1.4: relative to now - the 24-hour log trims older lines (a fixed date failed a day later)
             var h = new HistoryStore();
             var game = P(8000, 1000, "DeltaForceClient-Win64-Shipping.exe", @"D:\G\DeltaForceClient-Win64-Shipping.exe", 30, 7000, 95, true);
             for (int i = 0; i < 120; i++)

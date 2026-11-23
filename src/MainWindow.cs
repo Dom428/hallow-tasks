@@ -21,12 +21,12 @@ namespace HallowTasks
         Border content; TextBlock sayText, meter; Button updateBtn; DispatcherTimer sayTimer;
         public bool Exiting;
         public static readonly string[][] Pages = {
-            new[] { "processes", "Processes", "list-check" }, new[] { "game", "What's slowing my game", "gamepad" }, new[] { "performance", "Performance", "wave-square" },
+            new[] { "processes", "Processes", "list-check" }, new[] { "game", "What's slowing my game", "gamepad" }, new[] { "boost", "Game boost", "bolt" }, new[] { "performance", "Performance", "wave-square" },
             new[] { "history", "History", "clock-rotate-left" }, new[] { "startup", "Startup apps", "rocket" }, new[] { "services", "Services", "server" }, new[] { "settings", "Settings", "gear" } };
         public static string PageId(string s)
         {
             var v = (s ?? "").Trim().ToLowerInvariant();
-            if (v == "perf") v = "performance"; if (v == "apps" || v == "processes" || v == "details") v = "processes"; if (v == "slow" || v == "gaming") v = "game"; if (v == "spikes") v = "history"; if (v == "service") v = "services";
+            if (v == "perf") v = "performance"; if (v == "apps" || v == "processes" || v == "details") v = "processes"; if (v == "slow" || v == "gaming") v = "game"; if (v == "boost" || v == "gameboost") v = "boost"; if (v == "spikes") v = "history"; if (v == "service") v = "services";
             return Pages.Any(p => p[0] == v) ? v : null;
         }
 
@@ -112,6 +112,7 @@ namespace HallowTasks
             {
                 case "processes": content.Child = ProcessesPage(); break;
                 case "game": content.Child = GamePage(); break;
+                case "boost": content.Child = BoostPage(); break;
                 case "performance": content.Child = PerformancePage(); break;
                 case "history": content.Child = HistoryPage(); break;
                 case "startup": content.Child = StartupPage(); break;
@@ -131,6 +132,7 @@ namespace HallowTasks
             }
             if (page == "processes") RefreshProcesses();
             else if (page == "game") { if (gameAt == null || (DateTime.Now - gameAt.Value).TotalSeconds >= 1.9 || Snap.On) { gameAt = DateTime.Now; content.Child = GamePage(); } }
+            else if (page == "boost") { if (gameAt == null || (DateTime.Now - gameAt.Value).TotalSeconds >= 1.9 || Snap.On) { gameAt = DateTime.Now; var sv = boostScroll; var off = sv == null ? 0 : sv.VerticalOffset; content.Child = BoostPage(); if (boostScroll != null && off > 0) boostScroll.ScrollToVerticalOffset(off); } }
             else if (page == "performance") RefreshPerformance();
             else if (page == "history") RefreshHistory();
         }
@@ -341,7 +343,8 @@ namespace HallowTasks
             r.Set("Bold", !child && g.Category == "Apps");
             r.Set("Count", child ? "PID " + p.Pid : g.Members.Count > 1 ? "(" + g.Members.Count + ")" : "");
             var lowered = c.Keeper.Lowered.Any(e => child ? e.Pid == p.Pid : g.Members.Any(m => m.Pid == e.Pid));
-            if (!child && g.IsGame || child && Known.IsGameName(p.Name, c.ExtraGames) || (child && c.Game != null && c.Game.Key == p.Key)) r.SetTag("Game", "Green", "GreenBg");
+            if (child ? p.Hung : g.Hung) r.SetTag("Not responding", "Red", "RedBg");   // 1.4
+            else if (!child && g.IsGame || child && Known.IsGameName(p.Name, c.ExtraGames) || (child && c.Game != null && c.Game.Key == p.Key)) r.SetTag("Game", "Green", "GreenBg");
             else if (child ? Known.IsAntiCheat(p.Name) : g.IsAntiCheat) r.SetTag("Anti-cheat", "Amber", "AmberBg");
             else if (child ? c.EcoOn(p) : c.EcoOn(g)) r.SetTag("Efficiency", "Green", "GreenBg");
             else if (child ? p.Signed == false && p.Path != null : g.Signed == false && g.Category != "Hallow") r.SetTag("Not signed", "Amber", "AmberBg");
@@ -392,6 +395,7 @@ namespace HallowTasks
             var why = p != null ? c.WhyNot(p) : c.WhyNot(g);
             if (g.IsAntiCheat || (p != null && Known.IsAntiCheat(p.Name))) { var pl = Ui.Pill(Known.AntiCheatTag, "Amber", "AmberBg"); pl.Margin = new Thickness(10, 0, 0, 0); tl.Children.Add(pl); }
             else if (g.IsGame) { var pl = Ui.Pill("Your game — never touched by itself", "Green", "GreenBg"); pl.Margin = new Thickness(10, 0, 0, 0); tl.Children.Add(pl); }
+            if (p != null ? p.Hung : g.Hung) { var pl = Ui.Pill("Not responding", "Red", "RedBg"); pl.Margin = new Thickness(10, 0, 0, 0); pl.ToolTip = "Windows says a window of it hasn't read its messages for 5 s or more."; tl.Children.Add(pl); }
             else if (why != null) { var pl = Ui.Pill("Windows — protected", "Lilac", "LilacBg"); pl.Margin = new Thickness(10, 0, 0, 0); tl.Children.Add(pl); }
             left.Children.Add(tl);
             Func<string, string, UIElement> kv = (k, v) => { var t = new TextBlock { FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis }; t.Inlines.Add(new System.Windows.Documents.Run(k + "  ") { Foreground = Ui.R("Muted") }); t.Inlines.Add(new System.Windows.Documents.Run(v) { Foreground = Ui.R("Text") }); return t; };
@@ -411,6 +415,8 @@ namespace HallowTasks
             Action<Button> add = b => { b.Margin = new Thickness(6, 0, 0, 6); btns.Children.Add(b); };
             var closeGame = c.CloseGameTarget(g, p);   // v1.3: only for a process tagged Game (never anti-cheat or a launcher)
             if (closeGame != null) add(Ui.Danger("Close game…", () => CloseGame(closeGame)));
+            var closeApp = closeGame == null ? c.CloseAppTarget(g, p) : null;   // v1.4: a "Not responding" app (same safe flow)
+            if (closeApp != null) add(Ui.Danger("Close (not responding)…", () => CloseApp(closeApp)));
             var end = Ui.Danger("End task", () => EndSelected(false)); end.IsEnabled = why == null; if (why != null) { end.ToolTip = why; ToolTipService.SetShowOnDisabled(end, true); } add(end);
             var tree = Ui.Btn(c.S.TreeView ? "End tree" : "End process tree", () => EndSelected(true)); tree.IsEnabled = why == null; if (why != null) { tree.ToolTip = why; ToolTipService.SetShowOnDisabled(tree, true); } add(tree);
             var prio = Ui.Btn("Priority...", () => PrioritySelected()); prio.IsEnabled = why == null; add(prio);
@@ -493,12 +499,25 @@ namespace HallowTasks
             if (run.Now == GameCloseRun.State.Closed || run.Now == GameCloseRun.State.Forced) { selKey = null; selChild = null; Done(null, run.Title + (run.Now == GameCloseRun.State.Closed ? " closed." : " was force closed.")); }
             else { detailsFor = null; RefreshProcesses(); }
         }
+        // v1.4: the same dialog in "app" mode for a Not responding app
+        void CloseApp(ProcInfo app)
+        {
+            if (c.CloseAppTarget(null, app) == null) return;
+            var run = c.NewAppClose(app);
+            var w = GameCloseWindow.Make(run, null);
+            if (IsVisible) { w.Owner = this; w.WindowStartupLocation = WindowStartupLocation.CenterOwner; }
+            w.ShowDialog();
+            if (run.Now == GameCloseRun.State.Closed || run.Now == GameCloseRun.State.Forced) { selKey = null; selChild = null; Done(null, run.Title + (run.Now == GameCloseRun.State.Closed ? " closed." : " was force closed.")); }
+            else { detailsFor = null; RefreshProcesses(); }
+        }
         ContextMenu MenuFor(AppGroup g, ProcInfo p)
         {
             var m = new ContextMenu(); var why = p != null ? c.WhyNot(p) : c.WhyNot(g); var x = p ?? g.Main;
             Action<string, string, Action, bool> item = (label, icon, act, on) => { var mi = new MenuItem { Header = label, IsEnabled = on, Icon = icon == null ? null : Icons.Make(icon, 13, Ui.R("Text")) }; mi.Click += (s, e) => act(); m.Items.Add(mi); };
             var closeGame = c.CloseGameTarget(g, p);   // v1.3: only for a process tagged Game (never anti-cheat or a launcher)
             if (closeGame != null) { item("Close game…", "power-off", () => CloseGame(closeGame), true); m.Items.Add(new Separator()); }
+            var closeApp = closeGame == null ? c.CloseAppTarget(g, p) : null;
+            if (closeApp != null) { item("Close (not responding)…", "triangle-exclamation", () => CloseApp(closeApp), true); m.Items.Add(new Separator()); }
             item("End task", "circle-xmark", () => EndSelected(false), why == null);
             item(c.S.TreeView ? "End tree" : "End process tree", "skull-crossbones", () => EndSelected(true), why == null);
             m.Items.Add(new Separator());

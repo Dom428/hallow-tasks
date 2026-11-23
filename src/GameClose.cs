@@ -203,23 +203,31 @@ namespace HallowTasks
         public State Now = State.Ready; public int WaitSeconds = GameClose.WaitSeconds; public int Ended; public int Error;
         public DateTime AskedAt; public double TookSeconds;
         readonly IGameCloser io; readonly Func<IList<ProcInfo>> procs; readonly string windowsDir; readonly int selfPid; readonly Action<string> log;
+        // 1.4: the same two steps for an app that is "Not responding" (App = true): never a game (those use Close game...), anti-cheat,
+        // a launcher, Windows or Hallow - checked again at each step
+        public readonly bool App; readonly ProcInfo playing; readonly IEnumerable<string> extraGames;
 
         public GameCloseRun(ProcInfo game, string title, IGameCloser io, Func<IList<ProcInfo>> procs, string windowsDir, int selfPid, Action<string> log)
+            : this(game, title, io, procs, windowsDir, selfPid, log, false, null, null) { }
+        public GameCloseRun(ProcInfo target, string title, IGameCloser io, Func<IList<ProcInfo>> procs, string windowsDir, int selfPid, Action<string> log, bool app, ProcInfo playing, IEnumerable<string> extraGames)
         {
-            Game = game; Title = string.IsNullOrEmpty(title) ? game.Name : title; this.io = io; this.procs = procs; this.windowsDir = windowsDir; this.selfPid = selfPid; this.log = log ?? (s => { });
+            Game = target; Title = string.IsNullOrEmpty(title) ? target.Name : title; this.io = io; this.procs = procs; this.windowsDir = windowsDir; this.selfPid = selfPid; this.log = log ?? (s => { });
+            App = app; this.playing = playing; this.extraGames = extraGames; if (app) WaitSeconds = HungClose.WaitSeconds;
         }
+        bool Allowed(ProcInfo p) { return App ? HungClose.WhyNot(p, playing, extraGames, windowsDir, selfPid) == null : GameClose.Offerable(p, Game, null, selfPid); }
+        string Refused { get { return App ? "refused (a game, anti-cheat, launcher, Windows or Hallow)" : "refused (not a game)"; } }
         IList<ProcInfo> All { get { var a = procs == null ? null : procs(); return a ?? new List<ProcInfo>(); } }
         // what Force close would end now (the game first)
         public List<ProcInfo> Targets() { return GameClose.Targets(All.FirstOrDefault(p => p.Pid == Game.Pid && p.CreateTime == Game.CreateTime) ?? Game, All, windowsDir, selfPid); }
         public string AntiCheat { get { return GameClose.AntiCheatName(All); } }
         public bool FromSteam { get { return Game.Path != null && Game.Path.IndexOf("\\steamapps\\", StringComparison.OrdinalIgnoreCase) >= 0; } }
-        void Log(string what) { log("close game " + Game.Name + ": " + what); }
+        void Log(string what) { log((App ? "close app " : "close game ") + Game.Name + ": " + what); }
 
         // step 1: ask nicely (WM_CLOSE to the game's windows)
         public void Ask(DateTime now)
         {
             if (Now == State.Closed || Now == State.Forced || Now == State.Failed) return;
-            if (!GameClose.Offerable(Game, Game, null, selfPid)) { Now = State.Failed; Log("refused (not a game)"); return; }
+            if (!Allowed(Game)) { Now = State.Failed; Log(Refused); return; }
             if (!io.Alive(Game.Pid, Game.CreateTime)) { Now = State.Closed; Log("it had already closed"); return; }
             foreach (var t in Targets()) io.AskToClose(t.Pid);
             Now = State.Asking; AskedAt = now;
@@ -244,7 +252,7 @@ namespace HallowTasks
         {
             if (Now != State.StillRunning) return Now;   // only after asking nicely didn't work
             var ts = Targets(); var game = ts[0];
-            if (!GameClose.Offerable(game, Game, null, selfPid)) { Now = State.Failed; Log("refused (not a game)"); return Now; }
+            if (!Allowed(game)) { Now = State.Failed; Log(Refused); return Now; }
             int err; var r = io.Terminate(game.Pid, game.CreateTime, out err); Error = err;
             if (r == KillResult.Denied) { Now = State.Denied; Log("Windows denied it (protected - anti-cheat or admin)"); return Now; }
             if (r == KillResult.Failed) { Now = State.Failed; Log("Windows couldn't end it (error " + err + ")"); return Now; }
@@ -260,12 +268,14 @@ namespace HallowTasks
         public string DeniedText()
         {
             var ac = AntiCheat;
+            if (App) return "Windows protects " + Title + " (it may run as admin or belong to another user), so it won't let Hallow Tasks end it.";
             return ac != null ? Title + "'s anti-cheat (" + ac + ") protects the game, so Windows won't let any app end it."
                               : "Windows protects " + Title + " (it may run as admin), so it won't let Hallow Tasks end it.";
         }
         public string[] DeniedOptions()
         {
             var ac = AntiCheat;
+            if (App) return new[] { "Wait a minute - apps that stop responding often recover by themselves.", "Close it from Windows' Task Manager (it can ask for admin).", "Sign out of Windows, or restart." };
             return new[] {
                 FromSteam ? "Close it from Steam: the Stop button on the game in your library." : "Close it from its launcher (in Steam: the Stop button on the game in your library).",
                 "Wait a minute - " + (ac == "ACE" ? "ACE often finishes its shutdown" : ac != null ? "anti-cheat often finishes its shutdown" : "it may finish closing") + " and the game closes by itself.",
@@ -300,7 +310,18 @@ namespace HallowTasks
                     return new Border { Background = Ui.R(color + "Bg"), BorderBrush = Ui.R(color), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(2), Padding = new Thickness(10, 7, 10, 7), Margin = new Thickness(0, 4, 0, 8), Child = t };
                 };
                 int count = run.Targets().Count; string them = count <= 1 ? run.Game.Name : run.Game.Name + " and its own helpers (" + count + " processes)";
-                if (st == GameCloseRun.State.Ready)
+                if (run.App && st == GameCloseRun.State.Ready)
+                {
+                    sp.Children.Add(Ui.T("Close " + run.Title + "?", 15, true, null, 6));
+                    sp.Children.Add(Ui.Muted("It's not responding. Hallow Tasks only does this when you click it - never by itself.", 12.5, 12));
+                    sp.Children.Add(step("1", "Ask nicely: Windows asks " + run.Title + " to close its windows (what Task Manager's End task does), then Hallow Tasks waits up to " + run.WaitSeconds + " s. If it wakes up, it may still ask you to save."));
+                    sp.Children.Add(step("2", "If it's still running, Force close - only if you click it: ends " + them + " right away. Anything unsaved is lost."));
+                    sp.Children.Add(Ui.Muted("Never touched: games (they use Close game\u2026), anti-cheat, launchers (Steam, Battle.net...), Windows and Hallow apps.", 11.5, 0));
+                    var row = buttons(); var cancel = Ui.Btn("Cancel", () => w.Close()); row.Children.Add(cancel);
+                    var go = Ui.Btn("Close app", () => { run.Ask(DateTime.Now); if (timer != null) timer.Start(); render(); }, true); go.Margin = new Thickness(0); go.MinWidth = 100; row.Children.Add(go);
+                    focus(cancel);
+                }
+                else if (st == GameCloseRun.State.Ready)
                 {
                     sp.Children.Add(Ui.T("Close " + run.Title + "?", 15, true, null, 6));
                     sp.Children.Add(Ui.Muted("For when the game hangs on exit. Hallow Tasks only does this when you click it - never by itself. If you're in a match, you'll leave it.", 12.5, 12));
@@ -314,7 +335,7 @@ namespace HallowTasks
                 else if (st == GameCloseRun.State.Asking)
                 {
                     sp.Children.Add(Ui.T("Asking " + run.Title + " to close...", 15, true, null, 6));
-                    sp.Children.Add(Ui.Muted("Windows asked its windows to close - the way Task Manager's End task does for apps. Games often need a few seconds to save and shut down.", 12.5, 10));
+                    sp.Children.Add(Ui.Muted(run.App ? "Windows asked its windows to close - the way Task Manager's End task does. An app that isn't responding often can't answer, so Force close comes next." : "Windows asked its windows to close - the way Task Manager's End task does for apps. Games often need a few seconds to save and shut down.", 12.5, 10));
                     var left = run.SecondsLeft(DateTime.Now);
                     sp.Children.Add(Ui.T("Waiting " + left + " s", 22, true, Ui.R("AccentBrush")));
                     var row = buttons(); var cancel = Ui.Btn("Cancel", () => w.Close()); cancel.Margin = new Thickness(0); row.Children.Add(cancel);
@@ -323,7 +344,7 @@ namespace HallowTasks
                 {
                     sp.Children.Add(Ui.T(run.Title + " is still running", 15, true, null, 6));
                     sp.Children.Add(Ui.Muted("It didn't close within " + run.WaitSeconds + " s of being asked.", 12.5, 6));
-                    sp.Children.Add(box("Force close ends " + them + " right away. Anything unsaved is lost. Anti-cheat and launchers aren't touched.", "Amber"));
+                    sp.Children.Add(box("Force close ends " + them + " right away. Anything unsaved is lost. " + (run.App ? "Nothing else is touched." : "Anti-cheat and launchers aren't touched."), "Amber"));
                     var row = buttons(); var cancel = Ui.Btn("Cancel", () => w.Close()); row.Children.Add(cancel);
                     row.Children.Add(Ui.Btn("Ask again", () => { run.Ask(DateTime.Now); render(); }));
                     var force = Ui.Danger("Force close", () => { run.Force(); stop(); if (run.Now == GameCloseRun.State.Denied && timer != null) timer.Start(); render(); }); force.Margin = new Thickness(0); force.MinWidth = 100; row.Children.Add(force);
@@ -335,14 +356,14 @@ namespace HallowTasks
                     sp.Children.Add(box(run.DeniedText(), "Amber"));
                     sp.Children.Add(Ui.T("What you can do", 12.5, true, null, 4));
                     foreach (var o in run.DeniedOptions()) { var t = Ui.T("•  " + o, 12.5, false, Ui.R("Text")); t.TextWrapping = TextWrapping.Wrap; t.Margin = new Thickness(0, 0, 0, 4); sp.Children.Add(t); }
-                    sp.Children.Add(Ui.Muted("Hallow Tasks never tries to get around the protection - no admin tricks, nothing done to anti-cheat. This message closes by itself if the game does.", 11.5, 0));
+                    sp.Children.Add(Ui.Muted("Hallow Tasks never tries to get around the protection - no admin tricks" + (run.App ? ". This message closes by itself if the app does." : ", nothing done to anti-cheat. This message closes by itself if the game does."), 11.5, 0));
                     var row = buttons(); var ok = Ui.Btn("OK", () => w.Close(), true); ok.Margin = new Thickness(0); ok.MinWidth = 80; row.Children.Add(ok);
                 }
                 else
                 {
                     var good = st == GameCloseRun.State.Closed || st == GameCloseRun.State.Forced;
                     sp.Children.Add(Ui.T(st == GameCloseRun.State.Closed ? run.Title + " closed" : st == GameCloseRun.State.Forced ? run.Title + " was force closed" : "Windows couldn't end " + run.Title, 15, true, null, 6));
-                    sp.Children.Add(Ui.Muted(st == GameCloseRun.State.Closed ? "It closed after being asked nicely." : st == GameCloseRun.State.Forced ? run.Ended + " process" + (run.Ended == 1 ? "" : "es") + " ended. Anti-cheat and launchers weren't touched - they close by themselves." : "Windows said error " + run.Error + ". Try closing it from its launcher, or sign out / restart.", 12.5, 0));
+                    sp.Children.Add(Ui.Muted(st == GameCloseRun.State.Closed ? "It closed after being asked nicely." : st == GameCloseRun.State.Forced ? run.Ended + " process" + (run.Ended == 1 ? "" : "es") + " ended." + (run.App ? "" : " Anti-cheat and launchers weren't touched - they close by themselves.") : "Windows said error " + run.Error + ". Try closing it from its launcher, or sign out / restart.", 12.5, 0));
                     var row = buttons(); var ok = Ui.Btn("OK", () => w.Close(), good); ok.Margin = new Thickness(0); ok.MinWidth = 80; row.Children.Add(ok);
                 }
             };

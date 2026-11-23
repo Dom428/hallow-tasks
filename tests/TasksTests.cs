@@ -27,7 +27,7 @@ namespace HallowTasks.Tests
             Environment.SetEnvironmentVariable("HALLOW_TASKS_TESTDIR", Dir);
             // v1.2: a 5-minute kill timeout - a stuck suite fails instead of hanging
             new Thread(() => { Thread.Sleep(TimeSpan.FromMinutes(5)); Console.WriteLine("FAIL the suite took more than 5 minutes - stopped"); Console.WriteLine(pass + " passed, " + (fail + 1) + " failed"); Environment.Exit(3); }) { IsBackground = true }.Start();
-            try { Lists(); Groups(); Impact(); Detect(); Panel(); Keeper(); SafetyRules(); StartupBits(); StartupStoreTest(); Family(); Formats(); V11(); V12(); RealSampling(); RealControl(); PipeAndApp(); RealCopy(); V12Pipe(); V13(); if (!args.Contains("--quick")) OverheadCopy(); }
+            try { Lists(); Groups(); Impact(); Detect(); Panel(); Keeper(); SafetyRules(); StartupBits(); StartupStoreTest(); Family(); Formats(); V11(); V12(); RealSampling(); RealControl(); PipeAndApp(); RealCopy(); V12Pipe(); V13(); V14(); if (!args.Contains("--quick")) OverheadCopy(); }
             catch (Exception e) { fail++; Console.WriteLine("FAIL exception: " + e); }
             try { using (var k = Registry.CurrentUser.OpenSubKey(@"Software\HallowTasks")) if (k != null && k.SubKeyCount == 0 && k.ValueCount == 0) { k.Close(); Registry.CurrentUser.DeleteSubKey(@"Software\HallowTasks", false); } } catch { }
             try { if (Directory.Exists(Dir)) Directory.Delete(Dir, true); } catch { }
@@ -226,7 +226,7 @@ namespace HallowTasks.Tests
             Ok(items.First(i => i.Name == "Steam").Impact == "High" && items.First(i => i.Name == "Steam").Running, "running Steam with 350 MB = High");
             Ok(items.First(i => i.Name == "EpicGamesLauncher").Impact == "Off" && items.First(i => i.Name == "EpicGamesLauncher").Why.Contains("slowed"), "switched off in Windows = Off (and why: it slowed down startup)");
             Ok(items.First(i => i.Name == "Spotify").Impact == "Not running", "not running = Not running");
-            Ok(items.Where(i => i.Mine).All(i => i.Where == "Registry (you)") && items.Where(i => !i.Mine).All(i => i.Where != "Registry (you)"), "only your own Run entries can be changed");
+            Ok(items.Where(i => i.Mine).All(i => i.Where.EndsWith("(you)") && i.Kind != "task") && items.Where(i => !i.Mine).All(i => !i.Where.EndsWith("(you)") || i.Kind == "task"), "only your own entries (Run key, Startup folder) can be switched here");
         }
         static void StartupStoreTest()
         {
@@ -305,7 +305,7 @@ namespace HallowTasks.Tests
             Ok(groups.Count > 5 && groups.Count < b.Procs.Count, "real grouping: " + groups.Count + " groups from " + b.Procs.Count + " processes");
             Ok(groups.Any(g => g.Category == "Windows"), "real: Windows processes found");
             var sys = b.Procs.FirstOrDefault(p => p.Pid == 4); Ok(sys != null && Known.IsProtected(sys, s.WindowsDir), "real: System (pid 4) is protected");
-            var sw = Stopwatch.StartNew(); var st = new WindowsStartup(StartupStore.UserRun).Read(); var slow = new WindowsStartup(StartupStore.UserRun).SlowExes();
+            var sw = Stopwatch.StartNew(); var st = new WindowsStartup(StartupPaths.Real()).Read(); var slow = new WindowsStartup(StartupPaths.Real()).SlowExes();
             Ok(st != null && st.All(i => i.Name != null && i.Where != null), "real startup entries read (read-only): " + st.Count + " entries, " + st.Count(i => i.Mine) + " of them yours; slow-startup events readable: " + slow.Count + " (" + sw.ElapsedMilliseconds + " ms)");
         }
         static int Overhead()

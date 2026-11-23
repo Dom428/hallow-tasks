@@ -160,15 +160,23 @@ namespace HallowTasks
         }
 
         // ---- which processes have a visible top-level window (Task Manager's "Apps")
+        // 1.4: and which of them are "Not responding" (IsHungAppWindow: the window hasn't read its messages for 5 s). The title is read
+        // with InternalGetWindowText, which never sends a message - so a hung window can't block the sampler.
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int InternalGetWindowText(IntPtr h, StringBuilder s, int max);
+        [DllImport("user32.dll")] static extern bool IsHungAppWindow(IntPtr h);
         void MarkWindows(List<ProcInfo> procs)
         {
-            var pids = new HashSet<int>();
+            var pids = new HashSet<int>(); var hung = new HashSet<int>(); var sb = new StringBuilder(8);
             EnumWindows((h, l) =>
             {
-                if (IsWindowVisible(h) && GetWindow(h, 4 /*GW_OWNER*/) == IntPtr.Zero && GetWindowTextLength(h) > 0) { int pid; GetWindowThreadProcessId(h, out pid); pids.Add(pid); }
+                if (IsWindowVisible(h) && GetWindow(h, 4 /*GW_OWNER*/) == IntPtr.Zero)
+                {
+                    sb.Length = 0;
+                    if (InternalGetWindowText(h, sb, 4) > 0) { int pid; GetWindowThreadProcessId(h, out pid); pids.Add(pid); if (IsHungAppWindow(h)) hung.Add(pid); }
+                }
                 return true;
             }, IntPtr.Zero);
-            foreach (var p in procs) p.HasWindow = pids.Contains(p.Pid);
+            foreach (var p in procs) { p.HasWindow = pids.Contains(p.Pid); p.Hung = hung.Contains(p.Pid); }
         }
 
         // ---- TCP connections per process (IPv4 + IPv6, established ones; no admin needed)

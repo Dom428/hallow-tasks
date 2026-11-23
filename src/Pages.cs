@@ -1,4 +1,4 @@
-﻿// Hallow Tasks - the other pages: What's slowing my game, Performance (live graphs), Startup apps and Settings.
+﻿// Hallow Tasks - the other pages: What's slowing my game, Performance (live graphs), Startup apps and Settings. (Game boost: Pages3.cs)
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -223,68 +223,74 @@ namespace HallowTasks
             set("net", Fmt.Bits(y.NetDown + y.NetUp), "receive " + Fmt.Bits(y.NetDown) + " · send " + Fmt.Bits(y.NetUp) + " · all adapters");
         }
 
-        // ================= Startup apps
+        // ================= Startup apps (1.4: Task Manager's switch, scheduled sign-in tasks, Windows' boot times)
         FrameworkElement StartupPage()
         {
-            var sp = PageBody("Startup apps", "What starts with Windows, and how much it costs. Impact is an estimate (Hallow Toolkit's): the RAM and CPU time it uses now, plus Windows' \"slowed down startup\" events when Windows shows them to you.");
+            var sp = PageBody("Startup apps", "What starts with Windows, and how much it costs. Impact is an estimate: the RAM and CPU time it uses now, plus the time Windows measured at boot when Windows shows it to you. Disable and Enable work exactly like Task Manager's - Windows' own Startup apps switch, nothing is deleted.");
             var bar = new WrapPanel { Margin = new Thickness(0, 0, 0, 12) };
             bar.Children.Add(Ui.Btn(c.StartupReading ? "Loading..." : "Refresh", () => c.RefreshStartup()));
-            bar.Children.Add(Ui.Btn("Open Startup apps", () => c.OpenWindowsStartup(), false, "Windows' own Startup apps page - for entries that are for all users (they need admin) and for switching any of them off Windows' way."));
+            bar.Children.Add(Ui.Btn("Open Startup apps", () => c.OpenWindowsStartup(), false, "Windows' own Startup apps page (Settings) - for entries that are for all users (they need admin)."));
             sp.Children.Add(bar);
             if (c.StartupItems == null) { sp.Children.Add(Ui.Muted("Reading the startup entries...", 12.5)); return Scroll(sp); }
             var table = new StackPanel();
             var hdr = StartGrid();
-            Action<int, string> h = (col, t) => { var tb = Ui.Muted(t, 11); tb.Margin = new Thickness(6, 0, 6, 6); Grid.SetColumn(tb, col); hdr.Children.Add(tb); };
-            h(0, "Name"); h(1, "Impact"); h(2, "Status"); h(3, "Where"); h(4, "RAM now"); h(5, "Command"); table.Children.Add(hdr);
+            Action<int, string, HorizontalAlignment> h = (col, t, al) => { var tb = Ui.Muted(t, 11); tb.HorizontalAlignment = al; tb.Margin = new Thickness(6, 0, 6, 6); Grid.SetColumn(tb, col); hdr.Children.Add(tb); };
+            h(0, "Name", HorizontalAlignment.Left); h(1, "Impact", HorizontalAlignment.Left); h(2, "Status", HorizontalAlignment.Left); h(3, "Where", HorizontalAlignment.Left); h(4, "At boot", HorizontalAlignment.Right); h(5, "RAM now", HorizontalAlignment.Right); h(6, "Command", HorizontalAlignment.Left);
+            table.Children.Add(hdr);
             int i = 0;
             foreach (var it in c.StartupItems)
             {
                 var item = it; i++;
                 var row = StartGrid(); row.MinHeight = 34;
                 var bg = new Border { Background = i % 2 == 0 ? Ui.R("RowChild") : Ui.R("Heat0"), BorderBrush = Ui.R("LineDim"), BorderThickness = new Thickness(0, 0, 0, 1), Child = row };
-                var nm = Ui.T(it.Name, 12.5, true); nm.TextTrimming = TextTrimming.CharacterEllipsis; nm.TextWrapping = TextWrapping.NoWrap; nm.VerticalAlignment = VerticalAlignment.Center; nm.Margin = new Thickness(6, 0, 6, 0); row.Children.Add(nm);
+                var nm = Ui.T(it.Name, 12.5, true); nm.TextTrimming = TextTrimming.CharacterEllipsis; nm.TextWrapping = TextWrapping.NoWrap; nm.VerticalAlignment = VerticalAlignment.Center; nm.Margin = new Thickness(6, 0, 6, 0); nm.ToolTip = it.Name; row.Children.Add(nm);
                 var imp = Ui.Pill(it.Impact, it.Impact == "High" ? "Red" : it.Impact == "Medium" ? "Amber" : it.Impact == "Low" ? "Green" : "Lilac", it.Impact == "High" ? "RedBg" : it.Impact == "Medium" ? "AmberBg" : it.Impact == "Low" ? "GreenBg" : "LilacBg");
-                imp.HorizontalAlignment = HorizontalAlignment.Left; imp.Margin = new Thickness(6, 0, 0, 0); if (it.Why.Length > 0) imp.ToolTip = it.Why; Grid.SetColumn(imp, 1); row.Children.Add(imp);
-                var st = Ui.T(it.Enabled ? "On" : "Off (Windows)", 12, false, Ui.R(it.Enabled ? "Text" : "Muted")); st.VerticalAlignment = VerticalAlignment.Center; st.Margin = new Thickness(6, 0, 6, 0); Grid.SetColumn(st, 2); row.Children.Add(st);
-                var wh = Ui.Muted(it.Where, 11.5); wh.VerticalAlignment = VerticalAlignment.Center; wh.Margin = new Thickness(6, 0, 6, 0); Grid.SetColumn(wh, 3); row.Children.Add(wh);
-                var ram = Ui.Num(it.Running ? Fmt.Bytes(it.Ram) : "-", 11.5, Ui.R("Text")); ram.VerticalAlignment = VerticalAlignment.Center; ram.HorizontalAlignment = HorizontalAlignment.Right; ram.Margin = new Thickness(0, 0, 10, 0); Grid.SetColumn(ram, 4); row.Children.Add(ram);
-                var cmd = Ui.Muted(it.Command, 11); cmd.TextWrapping = TextWrapping.NoWrap; cmd.TextTrimming = TextTrimming.CharacterEllipsis; cmd.VerticalAlignment = VerticalAlignment.Center; cmd.ToolTip = it.Command; cmd.Margin = new Thickness(6, 0, 6, 0); Grid.SetColumn(cmd, 5); row.Children.Add(cmd);
-                FrameworkElement act;
+                imp.HorizontalAlignment = HorizontalAlignment.Left; imp.VerticalAlignment = VerticalAlignment.Center; imp.Margin = new Thickness(6, 0, 0, 0); if (it.Why.Length > 0) imp.ToolTip = it.Why; Grid.SetColumn(imp, 1); row.Children.Add(imp);
+                var stText = it.Enabled ? "On" : it.OffSince != null ? "Off since " + it.OffSince.Value.ToString("d MMM") : "Off";
+                var st = Ui.T(stText, 12, false, Ui.R(it.Enabled ? "Text" : "Muted")); st.VerticalAlignment = VerticalAlignment.Center; st.Margin = new Thickness(6, 0, 6, 0); Grid.SetColumn(st, 2); row.Children.Add(st);
+                var wh = Ui.Muted(it.Where, 11.5); wh.VerticalAlignment = VerticalAlignment.Center; wh.Margin = new Thickness(6, 0, 6, 0); wh.TextTrimming = TextTrimming.CharacterEllipsis; Grid.SetColumn(wh, 3); row.Children.Add(wh);
+                var bt = Ui.Num(it.BootMs > 0 ? StartupImpact.Secs(it.BootMs) : "-", 11.5, Ui.R(it.BootMs >= 3000 ? "Amber" : "Text")); bt.VerticalAlignment = VerticalAlignment.Center; bt.HorizontalAlignment = HorizontalAlignment.Right; bt.Margin = new Thickness(0, 0, 10, 0);
+                bt.ToolTip = it.BootMs > 0 ? "Windows measured this at boot (its Diagnostics-Performance log)." : "Windows didn't measure it, or only shows its boot log to administrators."; Grid.SetColumn(bt, 4); row.Children.Add(bt);
+                var ram = Ui.Num(it.Running ? Fmt.Bytes(it.Ram) : "-", 11.5, Ui.R("Text")); ram.VerticalAlignment = VerticalAlignment.Center; ram.HorizontalAlignment = HorizontalAlignment.Right; ram.Margin = new Thickness(0, 0, 10, 0); Grid.SetColumn(ram, 5); row.Children.Add(ram);
+                var cmd = Ui.Muted(it.Command, 11); cmd.TextWrapping = TextWrapping.NoWrap; cmd.TextTrimming = TextTrimming.CharacterEllipsis; cmd.VerticalAlignment = VerticalAlignment.Center; cmd.ToolTip = it.Command; cmd.Margin = new Thickness(6, 0, 6, 0); Grid.SetColumn(cmd, 6); row.Children.Add(cmd);
+                Button act;
                 if (it.Mine)
-                {
-                    var b = Ui.Btn("Disable", () =>
+                    act = Ui.Btn(it.Enabled ? "Disable" : "Enable", () =>
                     {
-                        if (!Dialogs.Confirm(this, "Stop " + item.Name + " starting with Windows?", "It's moved to Hallow Tasks' backup (nothing is deleted) - Restore puts it back. It stays running now; it just won't start next time.", "Disable", false)) return;
-                        var e = c.DisableStartup(item); if (e != null) Dialogs.Info(this, "Hallow Tasks", e); else Say(item.Name + " won't start with Windows. Restore is below.");
-                    }, false, "Your own startup entry (HKCU Run): moved to a backup, with Restore.");
-                    b.Padding = new Thickness(8, 3, 8, 3); b.Margin = new Thickness(0); act = b;
-                }
-                else act = Ui.Muted(it.Where.StartsWith("Registry (all") ? "all users - Windows' page" : "Windows' page", 11);
-                act.HorizontalAlignment = HorizontalAlignment.Right; act.VerticalAlignment = VerticalAlignment.Center; act.Margin = new Thickness(0, 0, 6, 0); Grid.SetColumn(act, 6); row.Children.Add(act);
+                        var on = !item.Enabled; var e = c.SetStartupOn(item, on);
+                        if (e != null) Dialogs.Info(this, "Hallow Tasks", e); else Say(on ? item.Name + " starts with Windows again." : item.Name + " won't start with Windows (it keeps running now). Enable switches it back.");
+                    }, false, "Your own entry: Windows' Startup apps switch (StartupApproved), exactly like Task Manager - nothing is deleted.");
+                else if (it.Kind == "task") act = Ui.Btn("Task Scheduler", () => c.OpenTaskScheduler(), false, "A scheduled task that runs when you sign in - switch it in Windows' Task Scheduler.");
+                else act = Ui.Btn("Windows' page", () => c.OpenWindowsStartup(), false, "For all users: Windows needs admin to change it, so it's switched on Windows' own Startup apps page.");
+                act.Padding = new Thickness(8, 3, 8, 3); act.Margin = new Thickness(0); act.HorizontalAlignment = HorizontalAlignment.Right; act.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(act, 7); row.Children.Add(act);
                 table.Children.Add(bg);
             }
-            if (c.StartupItems.Count == 0) table.Children.Add(Ui.Muted("Nothing starts with Windows from the Run keys or the Startup folders.", 12.5));
+            if (c.StartupItems.Count == 0) table.Children.Add(Ui.Muted("Nothing starts with Windows from the Run keys, the Startup folders or your sign-in tasks.", 12.5));
             sp.Children.Add(Ui.Card(table, 12));
-            // disabled by Hallow Tasks (undo)
-            var dbox = new StackPanel();
-            dbox.Children.Add(Ui.Caps("Disabled by Hallow Tasks", 11));
-            if (c.Disabled.Count == 0) dbox.Children.Add(Ui.Muted("Nothing yet. Entries you disable here wait in Hallow Tasks' backup (HKCU\\Software\\HallowTasks) until you restore them.", 12));
-            foreach (var d in c.Disabled)
+            sp.Children.Add(Ui.Muted("Yours (Registry / Startup folder \"you\"): Disable and Enable here. All users: shown here, switched on Windows' Startup apps page (admin). Scheduled tasks: Windows' Task Scheduler. Impact and boot times are read-only.", 11.5, 0));
+            // 1.1-1.3 moved entries to a backup key: they can still be put back
+            if (c.Disabled.Count > 0)
             {
-                var dd = d; var row = new DockPanel { Margin = new Thickness(0, 6, 0, 0) };
-                var rb = Ui.Btn("Restore", () => { var e = c.RestoreStartup(dd); if (e != null) Dialogs.Info(this, "Hallow Tasks", e); else Say(dd.Name + " starts with Windows again."); }); rb.Padding = new Thickness(8, 3, 8, 3); rb.Margin = new Thickness(0);
-                DockPanel.SetDock(rb, Dock.Right); row.Children.Add(rb);
-                DateTime when; var w = DateTime.TryParse(d.When, out when) ? "  ·  disabled " + when.ToString("d MMM HH:mm") : "";
-                var t = new StackPanel(); t.Children.Add(Ui.T(d.Name, 12.5, true)); var dc = Ui.Muted(d.Data + w, 11); dc.TextTrimming = TextTrimming.CharacterEllipsis; dc.TextWrapping = TextWrapping.NoWrap; t.Children.Add(dc); row.Children.Add(t);
-                dbox.Children.Add(row);
+                var dbox = new StackPanel();
+                dbox.Children.Add(Ui.Caps("Disabled by Hallow Tasks 1.3 and earlier", 11));
+                dbox.Children.Add(Ui.Muted("These were moved to Hallow Tasks' backup (HKCU\\Software\\HallowTasks). Restore puts them back in your Run key.", 11.5, 2));
+                foreach (var d in c.Disabled)
+                {
+                    var dd = d; var row = new DockPanel { Margin = new Thickness(0, 6, 0, 0) };
+                    var rb = Ui.Btn("Restore", () => { var e = c.RestoreStartup(dd); if (e != null) Dialogs.Info(this, "Hallow Tasks", e); else Say(dd.Name + " starts with Windows again."); }); rb.Padding = new Thickness(8, 3, 8, 3); rb.Margin = new Thickness(0);
+                    DockPanel.SetDock(rb, Dock.Right); row.Children.Add(rb);
+                    DateTime when; var w = DateTime.TryParse(d.When, out when) ? "  ·  disabled " + when.ToString("d MMM HH:mm") : "";
+                    var t = new StackPanel(); t.Children.Add(Ui.T(d.Name, 12.5, true)); var dc = Ui.Muted(d.Data + w, 11); dc.TextTrimming = TextTrimming.CharacterEllipsis; dc.TextWrapping = TextWrapping.NoWrap; t.Children.Add(dc); row.Children.Add(t);
+                    dbox.Children.Add(row);
+                }
+                var dcard = Ui.Card(dbox, 14); dcard.Margin = new Thickness(0, 12, 0, 0); sp.Children.Add(dcard);
             }
-            var dcard = Ui.Card(dbox, 14); dcard.Margin = new Thickness(0, 12, 0, 0); sp.Children.Add(dcard);
             return Scroll(sp);
         }
         static Grid StartGrid()
         {
             var g = new Grid();
-            foreach (var w in new[] { 190.0, 110, 110, 170, 80, -1, 150 }) g.ColumnDefinitions.Add(new ColumnDefinition { Width = w < 0 ? new GridLength(1, GridUnitType.Star) : new GridLength(w) });
+            foreach (var w in new[] { 180.0, 100, 120, 170, 70, 80, -1, 130 }) g.ColumnDefinitions.Add(new ColumnDefinition { Width = w < 0 ? new GridLength(1, GridUnitType.Star) : new GridLength(w) });
             return g;
         }
 
@@ -303,6 +309,7 @@ namespace HallowTasks
             sp.Children.Add(LookCard());
             sp.Children.Add(HistoryCard());
             sp.Children.Add(NetworkCard());
+            sp.Children.Add(BoostSettingsCard());
             var f = new StackPanel();
             f.Children.Add(Ui.Caps("Hallow family", 11));
             f.Children.Add(Ui.Switch("Use the Hallow icon (Hallow Hub's tray menu lists Hallow Tasks)", c.S.UseHallowIcon, on => { c.S.UseHallowIcon = on; c.S.Save(); c.CheckHost(); }));

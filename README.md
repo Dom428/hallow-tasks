@@ -6,7 +6,8 @@ Part of the Hallow family of Windows apps. Hallow Tasks shows what's using your 
 **what's slowing your game**, with one click to lower it, put it in **Efficiency mode** or end it. **History** shows what spiked
 your PC and when, with the stutter moments of your game. It never touches the game by itself and never touches anti-cheat, never
 ends anything without asking, and needs **no admin** for normal use. Light and dark mode. 1.3: **Close game...** for a game that
-hangs on exit.
+hangs on exit. 1.4: **Not responding** apps tagged with a one-click **Close**, **Startup apps** switched exactly like Task Manager
+does it, and **Game boost** - free up the PC before or while you play, with everything put back after the game.
 
 ![Processes grouped by app, sorted by Impact (made-up data)](docs/processes.png)
 
@@ -42,6 +43,27 @@ hangs on exit.
   or denied.
 
   ![Close game: the confirm (made-up data)](docs/close-game.png) ![Close game: Windows refuses because anti-cheat protects the game (made-up data)](docs/close-game-denied.png)
+
+- **Not responding** (1.4): any app whose window Windows calls "Not responding" (`IsHungAppWindow` - it hasn't read its messages
+  for 5 s) gets a red **Not responding** tag in Processes, and **Close (not responding)...** in the details strip and the menu. It's
+  Close game's safe flow: **ask nicely** (`WM_CLOSE`, what Task Manager's End task does) and wait 5 s, then **Force close** only if
+  you click it - the app and its own helpers. Never a game (games keep **Close game...**), anti-cheat, a launcher (Steam,
+  Battle.net... - closing one can take your game with it), Windows or a Hallow app. An optional **quiet note** through Hallow Hub
+  after 15 s (Settings, on by default) - held while you play, and given after the game if the app is still stuck. The window title
+  is read without sending the window a message, so a hung app can never stall Tasks' sampling.
+
+  ![A Not responding app (made-up data)](docs/processes-hung.png) ![Close a Not responding app: Force close is offered after asking nicely (made-up data)](docs/close-app.png)
+
+- **Game boost** (1.4): before or while you play, a list of what's using the **CPU, RAM, GPU or network** right now (never your
+  game, anti-cheat, Windows, Hallow apps or the apps you opt out with **Skip**). Per app: **Below normal**, **Efficiency mode**, or
+  **Close** (asks nicely; **Force close** shows after 10 s, only on its own click), and a **reopen after** tick; or tick several and
+  **Close selected**. Launchers can be lowered but never closed. **After the game** - or when you click **Restore now** -
+  priorities and Efficiency go back and the apps you ticked start again from their own program file with the same command line
+  (read with `NtQueryInformationProcess`, no admin), started normally by you. Quitting Tasks puts priorities and Efficiency back.
+  **Nothing is automatic** unless you **Save as Boost profile** and tick **Apply it when a game starts** - and even then closing only
+  asks nicely; Force close is always your click.
+
+  ![Game boost with a few apps boosted and a profile saved (made-up data)](docs/boost-active.png)
 
 - **What's slowing my game**: when a game runs - DeltaForceClient-Win64-Shipping.exe, Discovery-d.exe, the exe names you add in
   Settings, or whatever Hallow Hub says you're playing - a panel ranks the other apps by the CPU, GPU and disk they took over the
@@ -97,18 +119,24 @@ hangs on exit.
   follows.
 
   ![Light mode (made-up data)](docs/processes-light.png)
-- **Startup apps** with an impact estimate (Hallow Toolkit's rule: RAM and CPU time per hour it uses now, plus Windows' "slowed
-  down startup" events when Windows lets you read them): the Run keys (yours and all users') and the Startup folders, and whether
-  Windows' Startup apps page has them switched off. **Your own** entries (HKCU Run) can be **disabled** - moved to Hallow Tasks'
-  backup (`HKCU\Software\HallowTasks\DisabledStartup`), with **Restore** (like Hallow Guard). Nothing is deleted; entries for all
-  users open Windows' Startup apps page.
+- **Startup apps** with an impact estimate: the Run keys (yours and all users'), the Startup folders and (1.4) **your scheduled
+  tasks that run at sign-in** where Windows lets you read them (Windows' own `\Microsoft` tasks left out). Impact uses the RAM and
+  CPU time per hour each app uses now, Windows' own **StartupApproved** switch (on, or **off since** a date) and, 1.4, the **time
+  Windows measured at boot** (its Diagnostics-Performance log, read-only - often shown only to administrators, then "-").
+  **Disable / Enable** (1.4) work **exactly like Task Manager**: Windows' `StartupApproved` value for the entry (`02` = on,
+  `03` + the time = off) for **your own** entries (HKCU Run and your Startup folder) - reversible, nothing deleted or moved.
+  Entries for all users are shown with a button to Windows' **Startup apps** page (they need admin); scheduled tasks open Task
+  Scheduler. Entries 1.1-1.3 moved to their backup key can still be **restored**.
+
+  ![Startup apps (made-up data)](docs/startup.png)
 - **Hallow family**: the family pipe (`ping`, `status` with the top CPU / GPU users, `quick` (1.2: the same fields at once, from a
-  cached sample never more than 5 s old - for Hallow Remote and Hub), `open [processes|game|performance|startup|
+  cached sample never more than 5 s old - for Hallow Remote and Hub), `open [processes|game|boost|performance|startup|
   settings|history|services]`, `menu`, `invoke <id>`, `quit`), `HallowTasks.exe --cmd "<line>"`, `%APPDATA%\HallowTasks\status.json`, Hallow Hub's
   tray menu (Hub 2.13+ lists any app answering `menu`; Tasks hides its own icon only when Hub lists it), the Hallow accent colour
   from `%APPDATA%\Hallow\theme.json`, crash reports kept on this PC, and the GitHub updater (checks the download's SHA-256). Status carries `busyApps` (1.2: how many apps
   use at least `busyPercent` = 5% of the CPU or GPU - a count, no names). While Hub or Remote runs, or someone asked `quick` in the last
-  2 minutes, status.json is rewritten with every sample (about every 5 s); otherwise every 60 s.
+  2 minutes, status.json is rewritten with every sample (about every 5 s); otherwise every 60 s. 1.4 adds `notResponding`
+  (how many processes are Not responding), `boosted` and `boostAuto`.
 - **Ctrl+Alt+T** opens it - **off by default** (Settings). Ctrl+Shift+Esc belongs to Windows' Task Manager and can't be taken
   over safely.
 - **Low overhead**: once a second while its window is open and not minimized (one `NtQuerySystemInformation` call for all
@@ -151,7 +179,7 @@ History spikes, stutters (CPU peaks and Overlay's live numbers), the 24-hour log
 shown); the precise-network protocol, a made-up kernel event, and the helper started **without** elevation (it must answer
 "denied"); and the overhead of a real test copy in the tray and with its window "open". 1.2 adds: the busy-app count, `quick`
 (fresh within 5 s over 14 s, answered from the cache, also with the real sampler), status.json kept fresh while asked, and no History
-from samples taken only for Remote / Hub; 1.2.1: right after start `quick` never answers with the first sample's zeros. 1.3: Close game - who it's offered for (never anti-cheat or launchers, even listed as games), what Force close may end, the steps with a fake process layer (closed nicely, forced, access denied, the log), and **stand-ins the tests start in their own temp folder** (tests\StandIn.exe: an off-screen window that closes on WM_CLOSE or ignores it, with a helper, an anti-cheat-named and a launcher-named child that must stay untouched). The suite stops itself (and the ship script kills it) after 5 minutes.
+from samples taken only for Remote / Hub; 1.2.1: right after start `quick` never answers with the first sample's zeros. 1.3: Close game - who it's offered for (never anti-cheat or launchers, even listed as games), what Force close may end, the steps with a fake process layer (closed nicely, forced, access denied, the log), and **stand-ins the tests start in their own temp folder** (tests\StandIn.exe: an off-screen window that closes on WM_CLOSE or ignores it, with a helper, an anti-cheat-named and a launcher-named child that must stay untouched). 1.4: who Close (not responding) is offered for (never games, anti-cheat, launchers, Windows, Hallow or Tasks), the 15 s note held while a game runs, the safe flow in app mode, and a **stand-in that really stops reading its messages** (Windows marks it Not responding; the sampler isn't slowed; Force close ends it); Startup apps in a **fake registry root and temp folders only** - StartupApproved values written exactly like Task Manager's, the entries themselves untouched, all-users entries refused - with the real startup entries read before and after and required to be unchanged; Game boost's list and every exclusion, lower / Efficiency / close / Force close / restore / reopen with fakes and then with **stand-ins** (closed nicely, forced, reopened with the same command line, priority put back); and no "45 %" anywhere in the app's text. The suite stops itself (and the ship script kills it) after 5 minutes.
 
 ## Credits
 
