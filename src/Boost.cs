@@ -131,7 +131,7 @@ namespace HallowTasks
     {
         public class Closing
         {
-            public string Key, Title, Exe, Path, Args; public bool Reopen; public DateTime AskedAt;
+            public string Key, Title, Exe, Path, Args; public bool Reopen, Instant; public DateTime AskedAt;   // Instant (1.5): ended right away on your click
             public List<ProcInfo> Members = new List<ProcInfo>();
             public string State = "asking";   // asking, still (Force close offered), closed, forced, denied, reopened, failed
         }
@@ -178,14 +178,28 @@ namespace HallowTasks
         // step 1 of closing: ask nicely (WM_CLOSE to its windows). Step 2 (Force) only when you click it.
         public string Close(AppGroup g, bool reopen, DateTime now, int selfPid)
         {
+            Closing c2; var e = Start(g, reopen, now, selfPid, out c2); if (e != null) return e;
+            int asked = 0; foreach (var m in c2.Members) asked += io.AskToClose(m.Pid);
+            log("boost " + g.Title + ": asked to close (" + asked + " window" + (asked == 1 ? "" : "s") + ")");
+            return null;
+        }
+        // 1.5: your click on Close (Settings' default "end it right away"): ends it at once - no WM_CLOSE, no waiting. The same per-process
+        // checks as Force close (never a game, anti-cheat, launcher, Windows or Hallow). A saved profile applied by itself still only asks.
+        public string CloseNow(AppGroup g, bool reopen, DateTime now, ProcInfo game, IEnumerable<string> extraGames, string windowsDir, int selfPid)
+        {
+            Closing c2; var e = Start(g, reopen, now, selfPid, out c2); if (e != null) return e;
+            c2.State = "still"; c2.Instant = true;
+            return Force(c2.Key, game, extraGames, windowsDir, selfPid);
+        }
+        string Start(AppGroup g, bool reopen, DateTime now, int selfPid, out Closing c2)
+        {
+            c2 = null;
             if (!Boost.CanClose(g)) return g.Title + " is a game launcher - lower it instead (your game may need it).";
             var main = g.Main; var own = Own(g, selfPid).ToList(); if (main == null || own.Count == 0) return "That app has closed.";
             var old = Closed.FirstOrDefault(c => c.Key == g.Key); if (old != null) Closed.Remove(old);
-            var c2 = new Closing { Key = g.Key, Title = g.Title, Exe = Boost.Exe(g), Path = main.Path, Reopen = reopen, AskedAt = now, Members = own };
+            c2 = new Closing { Key = g.Key, Title = g.Title, Exe = Boost.Exe(g), Path = main.Path, Reopen = reopen, AskedAt = now, Members = own };
             if (reopen) { string cl = null; try { cl = cmdLine == null ? null : cmdLine(main.Pid); } catch { } c2.Args = ProcCmd.Args(cl); }
-            int asked = 0; foreach (var m in own) asked += io.AskToClose(m.Pid);
             Closed.Add(c2); Remember(g, "close", reopen);
-            log("boost " + g.Title + ": asked to close (" + asked + " window" + (asked == 1 ? "" : "s") + ")");
             return null;
         }
         bool AnyAlive(Closing c) { return c.Members.Any(m => io.Alive(m.Pid, m.CreateTime)); }
@@ -212,7 +226,7 @@ namespace HallowTasks
                 if (r == KillResult.Ok) ended++; else if (r == KillResult.Denied) denied = true;
             }
             c.State = denied && ended == 0 ? "denied" : "forced";
-            log("boost " + c.Title + ": " + (c.State == "denied" ? "Windows denied force close" : "force closed (" + ended + ")"));
+            log("boost " + c.Title + ": " + (c.State == "denied" ? "Windows denied " + (c.Instant ? "closing it" : "force close") : (c.Instant ? "ended right away (" : "force closed (") + ended + ")"));
             return c.State == "denied" ? "Windows won't let Hallow Tasks end " + c.Title + " (it may run as admin)." : null;
         }
 

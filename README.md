@@ -8,6 +8,7 @@ your PC and when, with the stutter moments of your game. It never touches the ga
 ends anything without asking, and needs **no admin** for normal use. Light and dark mode. 1.3: **Close game...** for a game that
 hangs on exit. 1.4: **Not responding** apps tagged with a one-click **Close**, **Startup apps** switched exactly like Task Manager
 does it, and **Game boost** - free up the PC before or while you play, with everything put back after the game.
+1.5: **closing a game is instant now** - one confirm, then it ends right away.
 
 ![Processes grouped by app, sorted by Impact (made-up data)](docs/processes.png)
 
@@ -31,37 +32,40 @@ does it, and **Game boost** - free up the PC before or while you play, with ever
   -ScanType 3 -File ... -DisableRemediation`, the engine Guard uses), **Copy details**.
   Windows' core processes (csrss, lsass, svchost, dwm, explorer...), session-0 programs in the Windows folder, your game and
   anti-cheat are **refused with a clear message** (priority, affinity and Efficiency mode stay off for games and anti-cheat).
-- **Close game...** (1.3) - for a game that hangs on exit. Only on a process tagged **Game** (never anti-cheat), in the right-click
-  menu and the details strip, and only when you click it: a dialog explains both steps first. **Step 1, ask nicely**: Windows asks
-  the game's windows to close (`WM_CLOSE`, what Task Manager's End task does for apps), then a 10-second countdown. **Step 2**, only if
-  it's still running and you click **Force close**: the game and its own helpers (in its install folder, or its crash / web helpers)
-  are ended. Anti-cheat (ACE / SGuard, Easy Anti-Cheat, BattlEye, Vanguard...), Steam, Battle.net and other launchers are never
-  touched. If Windows refuses (anti-cheat protects the game), it says so plainly - *"Delta Force's anti-cheat (ACE) protects the
-  game, so Windows won't let any app end it"* - and lists what you can do: the Stop button in your Steam library, wait a minute
-  (ACE often finishes its shutdown), or sign out / restart. It never tries to get around the protection: no admin, no debug
-  privilege, no driver, nothing done to anti-cheat. Nothing is automatic. Tasks' log gets one line: closed nicely, force closed
-  or denied.
+- **Close game...** (1.3; **instant since 1.5**) - for a game that hangs on exit, or when you just want it gone now. Only on a
+  process tagged **Game** (never anti-cheat), in the right-click menu and the details strip, and only when you click it. One
+  confirm - *"End Delta Force now? Unsaved progress is lost."* - then **Close now** ends the game and its own helpers (in its
+  install folder, or its crash / web helpers) right away with `TerminateProcess`. No 10-second wait. Anti-cheat (ACE / SGuard,
+  Easy Anti-Cheat, BattlEye, Vanguard...), Steam, Battle.net and other launchers, Windows and Hallow are never touched. Tick
+  **Don't ask again** to skip the confirm next time (Settings > Games > **Confirm before closing** turns it back on). Prefer the
+  1.3 way? Settings > Games > **When closing a game**: **End it right away** (default) or **Ask it to close first** - Windows asks
+  the game's windows to close (`WM_CLOSE`), a 10-second countdown, then **Force close** only if you click it.
+  If Windows refuses (anti-cheat protects the game), it says so at once and plainly - *"Delta Force's anti-cheat (ACE) protects
+  the game, so Windows won't let any app end it"* - and lists what you can do: the Stop button in your Steam library, wait a
+  minute (ACE often finishes its shutdown), or sign out / restart. It never tries to get around the protection: no admin, no debug
+  privilege, no driver, nothing done to anti-cheat. Nothing is automatic. Tasks' log gets one line: ended right away, closed
+  nicely, force closed or denied.
 
   ![Close game: the confirm (made-up data)](docs/close-game.png) ![Close game: Windows refuses because anti-cheat protects the game (made-up data)](docs/close-game-denied.png)
 
 - **Not responding** (1.4): any app whose window Windows calls "Not responding" (`IsHungAppWindow` - it hasn't read its messages
-  for 5 s) gets a red **Not responding** tag in Processes, and **Close (not responding)...** in the details strip and the menu. It's
-  Close game's safe flow: **ask nicely** (`WM_CLOSE`, what Task Manager's End task does) and wait 5 s, then **Force close** only if
-  you click it - the app and its own helpers. Never a game (games keep **Close game...**), anti-cheat, a launcher (Steam,
+  for 5 s) gets a red **Not responding** tag in Processes, and **Close (not responding)...** in the details strip and the menu. Since
+  1.5 it's one confirm, then the app and its own helpers end right away (it's hung - it can't answer a close request anyway). Never a game (games keep **Close game...**), anti-cheat, a launcher (Steam,
   Battle.net... - closing one can take your game with it), Windows or a Hallow app. An optional **quiet note** through Hallow Hub
   after 15 s (Settings, on by default) - held while you play, and given after the game if the app is still stuck. The window title
   is read without sending the window a message, so a hung app can never stall Tasks' sampling.
 
-  ![A Not responding app (made-up data)](docs/processes-hung.png) ![Close a Not responding app: Force close is offered after asking nicely (made-up data)](docs/close-app.png)
+  ![A Not responding app (made-up data)](docs/processes-hung.png) ![Close a Not responding app: one confirm, then it ends right away (made-up data)](docs/close-app.png)
 
 - **Game boost** (1.4): before or while you play, a list of what's using the **CPU, RAM, GPU or network** right now (never your
   game, anti-cheat, Windows, Hallow apps or the apps you opt out with **Skip**). Per app: **Below normal**, **Efficiency mode**, or
-  **Close** (asks nicely; **Force close** shows after 10 s, only on its own click), and a **reopen after** tick; or tick several and
+  **Close** (1.5: ends it right away after one confirm - or, with Settings' **Ask it to close first**, asks nicely and shows **Force
+  close** after 10 s), and a **reopen after** tick; or tick several and
   **Close selected**. Launchers can be lowered but never closed. **After the game** - or when you click **Restore now** -
   priorities and Efficiency go back and the apps you ticked start again from their own program file with the same command line
   (read with `NtQueryInformationProcess`, no admin), started normally by you. Quitting Tasks puts priorities and Efficiency back.
   **Nothing is automatic** unless you **Save as Boost profile** and tick **Apply it when a game starts** - and even then closing only
-  asks nicely; Force close is always your click.
+  asks nicely; Force close is always your click (a profile applied by itself never ends anything).
 
   ![Game boost with a few apps boosted and a profile saved (made-up data)](docs/boost-active.png)
 
@@ -179,7 +183,7 @@ History spikes, stutters (CPU peaks and Overlay's live numbers), the 24-hour log
 shown); the precise-network protocol, a made-up kernel event, and the helper started **without** elevation (it must answer
 "denied"); and the overhead of a real test copy in the tray and with its window "open". 1.2 adds: the busy-app count, `quick`
 (fresh within 5 s over 14 s, answered from the cache, also with the real sampler), status.json kept fresh while asked, and no History
-from samples taken only for Remote / Hub; 1.2.1: right after start `quick` never answers with the first sample's zeros. 1.3: Close game - who it's offered for (never anti-cheat or launchers, even listed as games), what Force close may end, the steps with a fake process layer (closed nicely, forced, access denied, the log), and **stand-ins the tests start in their own temp folder** (tests\StandIn.exe: an off-screen window that closes on WM_CLOSE or ignores it, with a helper, an anti-cheat-named and a launcher-named child that must stay untouched). 1.4: who Close (not responding) is offered for (never games, anti-cheat, launchers, Windows, Hallow or Tasks), the 15 s note held while a game runs, the safe flow in app mode, and a **stand-in that really stops reading its messages** (Windows marks it Not responding; the sampler isn't slowed; Force close ends it); Startup apps in a **fake registry root and temp folders only** - StartupApproved values written exactly like Task Manager's, the entries themselves untouched, all-users entries refused - with the real startup entries read before and after and required to be unchanged; Game boost's list and every exclusion, lower / Efficiency / close / Force close / restore / reopen with fakes and then with **stand-ins** (closed nicely, forced, reopened with the same command line, priority put back); and no "45 %" anywhere in the app's text. The suite stops itself (and the ship script kills it) after 5 minutes.
+from samples taken only for Remote / Hub; 1.2.1: right after start `quick` never answers with the first sample's zeros. 1.3: Close game - who it's offered for (never anti-cheat or launchers, even listed as games), what Force close may end, the steps with a fake process layer (closed nicely, forced, access denied, the log), and **stand-ins the tests start in their own temp folder** (tests\StandIn.exe: an off-screen window that closes on WM_CLOSE or ignores it, with a helper, an anti-cheat-named and a launcher-named child that must stay untouched). 1.4: who Close (not responding) is offered for (never games, anti-cheat, launchers, Windows, Hallow or Tasks), the 15 s note held while a game runs, the safe flow in app mode, and a **stand-in that really stops reading its messages** (Windows marks it Not responding; the sampler isn't slowed; Force close ends it); Startup apps in a **fake registry root and temp folders only** - StartupApproved values written exactly like Task Manager's, the entries themselves untouched, all-users entries refused - with the real startup entries read before and after and required to be unchanged; Game boost's list and every exclusion, lower / Efficiency / close / Force close / restore / reopen with fakes and then with **stand-ins** (closed nicely, forced, reopened with the same command line, priority put back); and no "45 %" anywhere in the app's text. 1.5: closing is instant - Close now ends a stand-in game that ignores WM_CLOSE and its helper at once while the anti-cheat-named and launcher-named stand-ins stay untouched, access denied is shown at once (no waiting, nothing else touched), **Ask it to close first** still waits (fake clock and a stand-in), **Don't ask again** skips the confirm (the click ends it; the dialog still shows when Windows refuses) and is saved / undone in Settings, a 1.4 settings file upgrades to the instant default, a really hung stand-in is ended right away, and Game boost's Close ends a stand-in at once (a saved profile applied by itself still only asks). The suite stops itself (and the ship script kills it) after 5 minutes.
 
 ## Credits
 

@@ -16,8 +16,8 @@ WHAT IT DOES
 - Click a row for details: End task / End process tree (always asks first), priority, affinity
   (with a warning), open file location, search online (only when you click), scan with Microsoft
   Defender, copy details. Windows' own processes, your game and anti-cheat are refused with a reason.
-- Close game... (only for your game): asks it nicely to close, then - if it's still running and
-  you click Force close - ends it and its own helpers. Never anti-cheat or launchers.
+- Close game... (only for your game): one confirm, then it ends the game and its own helpers
+  right away. Never anti-cheat or launchers. (Settings > Games can make it ask the game nicely first.)
 - What's slowing my game: while Delta Force, Discovery or a game Hallow Hub says you're playing
   runs, the other apps ranked by the CPU, GPU and disk they took over the last 10 seconds. Lower
   one to Below normal or Idle for as long as the game runs (it goes back when the game closes, or
@@ -41,7 +41,7 @@ WHAT IT DOES
 - Light and dark mode: follows Hallow Toolkit's setting, or pick one in Settings > Look.
 - Startup apps (Run keys, Startup folders, your sign-in tasks) with an impact estimate and the
   time Windows measured at boot. Disable / Enable your own entries exactly like Task Manager.
-- Not responding apps are tagged, with a one-click Close (asks nicely, then Force close if you click).
+- Not responding apps are tagged, with a one-click Close (one confirm, then it ends right away).
 - Game boost: lower, put in Efficiency mode or close what's using your PC before or while you play;
   it all goes back after the game, and the apps you ticked reopen.
 - Hallow family: Hallow Hub's tray menu lists it, the Hallow accent colour, status for other apps.
@@ -54,6 +54,15 @@ GOOD TO KNOW
   network" the Network column counts each app's connections.
 - CPU temperature needs a kernel driver, so it isn't shown (same as Hallow Overlay).
 - Nothing is sent anywhere. Crash reports stay on this PC.
+
+WHAT'S NEW IN 1.5
+- Closing a game is instant now: one confirm ("End <game> now? Unsaved progress is lost."),
+  then Close now ends it and its own helpers right away - no 10-second wait. Anti-cheat,
+  launchers, Windows and Hallow are still never touched. Tick "Don't ask again" to skip the
+  confirm (Settings > Games turns it back on). Prefer the old way? Settings > Games > When
+  closing a game > Ask it to close first.
+- If anti-cheat protects the game, Tasks says so at once - no waiting.
+- Close (not responding) and Game boost's Close end the app right away too.
 
 WHAT'S NEW IN 1.4
 - Not responding: apps that stop responding get a red tag and a Close button - it asks the app

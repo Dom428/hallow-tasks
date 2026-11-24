@@ -22,14 +22,14 @@ using WF = System.Windows.Forms;
 [assembly: AssemblyTitle("Hallow Tasks")]
 [assembly: AssemblyProduct("Hallow Tasks")]
 [assembly: AssemblyDescription("A better Task Manager, Hallow style")]
-[assembly: AssemblyVersion("1.4.0.0")]
-[assembly: AssemblyFileVersion("1.4.0.0")]
+[assembly: AssemblyVersion("1.5.0.0")]
+[assembly: AssemblyFileVersion("1.5.0.0")]
 
 namespace HallowTasks
 {
     public static class Program
     {
-        public const string Version = "1.4";
+        public const string Version = "1.5";
         [DllImport("user32.dll")] static extern bool SetProcessDpiAwarenessContext(IntPtr v);
 
         [STAThread]
@@ -122,13 +122,17 @@ namespace HallowTasks
             if (dg != null)
             {
                 var fc = (FakeGameCloser)c.Closer; fc.IgnoresClose.Add(dg.Pid);
+                // 1.5 (default): one confirm, Close now; Windows refusing shows at once
+                var inst = c.NewGameClose(dg); Snap.Save(GameCloseWindow.Make(inst, null), F("dialog-closegame"), 500, 0);
+                fc.Denied.Add(dg.Pid); inst.EndNow(); Snap.Save(GameCloseWindow.Make(inst, null), F("dialog-closegame-denied"), 500, 0); fc.Denied.Clear(); fc.Gone.Clear();
+                // Settings > Games > "Ask it to close first": the 1.3 steps
+                c.S.CloseAskFirst = true;
                 var run = c.NewGameClose(dg);
-                Snap.Save(GameCloseWindow.Make(run, null), F("dialog-closegame"), 500, 0);
+                Snap.Save(GameCloseWindow.Make(run, null), F("dialog-closegame-askfirst"), 500, 0);
                 run.Ask(DateTime.Now.AddSeconds(-3)); Snap.Save(GameCloseWindow.Make(run, null), F("dialog-closegame-waiting"), 500, 0);
                 run.Tick(DateTime.Now.AddSeconds(30)); Snap.Save(GameCloseWindow.Make(run, null), F("dialog-closegame-force"), 500, 0);
-                fc.Denied.Add(dg.Pid); run.Force(); Snap.Save(GameCloseWindow.Make(run, null), F("dialog-closegame-denied"), 500, 0);
-                var ok = c.NewGameClose(dg); fc.Denied.Clear(); fc.Gone.Clear(); ok.Ask(DateTime.Now.AddSeconds(-11)); ok.Tick(DateTime.Now); ok.Force();
-                Snap.Save(GameCloseWindow.Make(ok, null), F("dialog-closegame-forced"), 500, 0);
+                run.Force(); Snap.Save(GameCloseWindow.Make(run, null), F("dialog-closegame-forced"), 500, 0);
+                fc.Gone.Clear(); c.S.CloseAskFirst = false;
             }
             // v1.4: a "Not responding" app (made-up Notepad), its Close dialog, Game boost with a few things boosted
             c.SnapGame(false); c.SampleNow(); w.Show("processes"); w.SnapSelect("exe:notepad", false); w.Refresh(); Snap.Save(w, F("processes-hung"), 1300, 800);
@@ -136,16 +140,19 @@ namespace HallowTasks
             if (np != null)
             {
                 var fc2 = (FakeGameCloser)c.Closer; fc2.IgnoresClose.Add(np.Pid);
-                var ar = c.NewAppClose(np); Snap.Save(GameCloseWindow.Make(ar, null), F("dialog-closeapp"), 500, 0);
-                ar.Ask(DateTime.Now.AddSeconds(-10)); ar.Tick(DateTime.Now); Snap.Save(GameCloseWindow.Make(ar, null), F("dialog-closeapp-force"), 500, 0);
+                var ar = c.NewAppClose(np); Snap.Save(GameCloseWindow.Make(ar, null), F("dialog-closeapp"), 500, 0);   // 1.5: one confirm, ended right away
+                fc2.Gone.Remove(np.Pid);
             }
             c.SnapGame(true); for (int i = 0; i < 2; i++) c.SampleNow();
             var dc = c.Groups.FirstOrDefault(g => g.Key == "discord"); if (dc != null) c.BoostLower(dc, Prio.BelowNormal);
             var ob2 = c.Groups.FirstOrDefault(g => g.Key == "obs"); if (ob2 != null) c.BoostEco(ob2);
             var sp2 = c.Groups.FirstOrDefault(g => g.Key == "spotify"); if (sp2 != null) { ((FakeGameCloser)c.Closer).Gone.Remove(4800); c.BoostClose(sp2, true); }
-            var ch = c.Groups.FirstOrDefault(g => g.Key == "chrome"); if (ch != null) { foreach (var m in ch.Members) ((FakeGameCloser)c.Closer).IgnoresClose.Add(m.Pid); c.BoostClose(ch, false); c.Boost.Tick(DateTime.Now.AddSeconds(11)); }
+            // Chrome as a saved profile closes it (asks nicely - a profile applied by itself never ends anything): still running, Force close offered
+            var ch = c.Groups.FirstOrDefault(g => g.Key == "chrome"); if (ch != null) { foreach (var m in ch.Members) ((FakeGameCloser)c.Closer).IgnoresClose.Add(m.Pid); c.Boost.Close(ch, false, DateTime.Now, c.SelfPid); c.Boost.Tick(DateTime.Now.AddSeconds(11)); }
             c.S.BoostProfile = c.Boost.Done.ToList(); c.S.BoostAuto = true;
             w.Show("boost"); w.Refresh(); Snap.Save(w, F("boost-active"), 1300, 800);
+            // 1.5: Settings with the Games card (When closing a game / Confirm before closing)
+            w.Show("settings"); w.Refresh(); Snap.Save(w, F("settings-full"), 1300, 2000);
         }
     }
     // the app: tray icon, family pipe, sampling, the game watch, actions, updates
@@ -407,21 +414,24 @@ namespace HallowTasks
         public GameCloseRun NewGameClose(ProcInfo game)
         {
             game = Fresh(game);
-            return new GameCloseRun(game, GameDetect.Title(game, HubPlaying), Closer, () => Last == null ? null : Last.Procs, WindowsDir, SelfPid, Log);
+            return new GameCloseRun(game, GameDetect.Title(game, HubPlaying), Closer, () => Last == null ? null : Last.Procs, WindowsDir, SelfPid, Log) { AskFirst = S.CloseAskFirst, NeverAsk = NeverAskClose };
         }
+        // 1.5 "Don't ask again" (Settings > Games turns the confirm back on)
+        void NeverAskClose() { S.CloseNoConfirm = true; S.Save(); Log("close: confirm turned off (Don't ask again)"); }
         // v1.4 Close for a "Not responding" app: the hung process behind a row, or null (never a game, anti-cheat, launcher, Windows or Hallow)
         public ProcInfo CloseAppTarget(AppGroup g, ProcInfo p) { return HungClose.Pick(g, p, Game, ExtraGames, WindowsDir, SelfPid); }
         public GameCloseRun NewAppClose(ProcInfo app)
         {
             app = Fresh(app);
-            return new GameCloseRun(app, Known.Friendly(app), Closer, () => Last == null ? null : Last.Procs, WindowsDir, SelfPid, Log, true, Game, ExtraGames);
+            return new GameCloseRun(app, Known.Friendly(app), Closer, () => Last == null ? null : Last.Procs, WindowsDir, SelfPid, Log, true, Game, ExtraGames) { NeverAsk = NeverAskClose };
         }
         // ---------------- v1.4 Game boost (each action only when you click it; Force close only on its own click)
         public List<BoostRow> BoostRows() { return HallowTasks.Boost.List(Groups, Game, ExtraGames, S.BoostSkip, WindowsDir, SelfPid, 14); }
         string BoostWhy(AppGroup g) { return HallowTasks.Boost.WhyNot(g, Game, ExtraGames, S.BoostSkip, WindowsDir, SelfPid); }
         public string BoostLower(AppGroup g, Prio to) { var w = BoostWhy(g); return w ?? Boost.Lower(g, to, SelfPid); }
         public string BoostEco(AppGroup g) { var w = BoostWhy(g); return w ?? Boost.Efficiency(g, SelfPid); }
-        public string BoostClose(AppGroup g, bool reopen) { var w = BoostWhy(g); return w ?? Boost.Close(g, reopen, DateTime.Now, SelfPid); }
+        // 1.5: your click on Close ends it right away (TerminateProcess, the same checks as Force close) unless Settings says "ask first"
+        public string BoostClose(AppGroup g, bool reopen) { var w = BoostWhy(g); return w ?? (S.CloseAskFirst ? Boost.Close(g, reopen, DateTime.Now, SelfPid) : Boost.CloseNow(g, reopen, DateTime.Now, Game, ExtraGames, WindowsDir, SelfPid)); }
         public string BoostForce(string key) { return Boost.Force(key, Game, ExtraGames, WindowsDir, SelfPid); }
         public string BoostRestore() { return Boost.Restore(true); }
         public void BoostSkip(AppGroup g) { var e = HallowTasks.Boost.Exe(g); if (e.Length > 0 && !S.BoostSkip.Contains(e)) { S.BoostSkip.Add(e); S.Save(); } }

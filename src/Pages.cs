@@ -323,7 +323,21 @@ namespace HallowTasks
             var save = Ui.Btn("Save", () => { c.SetExtraGames(box.Text); Say("Saved " + c.S.ExtraGames.Count + " more game" + (c.S.ExtraGames.Count == 1 ? "" : "s") + "."); }, true);
             save.Margin = new Thickness(8, 0, 0, 0); DockPanel.SetDock(save, Dock.Right); row.Children.Add(save); row.Children.Add(box);
             g.Children.Add(row);
-            g.Children.Add(Ui.Muted("Never touched by itself: the game (it only closes when you use Close game… and confirm). Never touched at all: anti-cheat - " + string.Join(", ", new[] { "SGuard", "ACE", "EasyAntiCheat", "BattlEye (BEService)", "Vanguard (vgc)", "FACEIT", "nProtect", "XIGNCODE", "PunkBuster" }) + " and similar.", 11.5, 0));
+            // 1.5: closing is instant by default
+            var ch = Ui.T("When closing a game", 12.5, true, null, 0); ch.Margin = new Thickness(0, 12, 0, 0); g.Children.Add(ch);
+            var chips = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 6) };
+            foreach (var o in new[] { new object[] { false, "End it right away (default)" }, new object[] { true, "Ask it to close first" } })
+            {
+                var askFirst = (bool)o[0];
+                var t = new System.Windows.Controls.Primitives.ToggleButton { Content = (string)o[1], Style = Ui.S("Chip"), Margin = new Thickness(0, 0, 6, 0), IsChecked = c.S.CloseAskFirst == askFirst };
+                t.Click += (s, e) => { c.S.CloseAskFirst = askFirst; c.S.Save(); BuildPage(); };
+                chips.Children.Add(t);
+            }
+            g.Children.Add(chips);
+            g.Children.Add(Ui.Muted(c.S.CloseAskFirst ? "Close game… and Game boost's Close ask it to close its windows, wait up to " + GameClose.WaitSeconds + " s, then offer Force close." : "Close game… and Game boost's Close end it (and its own helpers) the moment you confirm - no waiting. Unsaved progress is lost.", 11.5, 6));
+            g.Children.Add(Ui.Switch("Confirm before closing (a game, a Not responding app, or an app in Game boost)", !c.S.CloseNoConfirm, on => { c.S.CloseNoConfirm = !on; c.S.Save(); }));
+            g.Children.Add(Ui.Muted("Not responding apps are always ended right away after the confirm - they can't answer a close request anyway.", 11.5, 8));
+            g.Children.Add(Ui.Muted("Never touched by itself: the game (it only closes when you use Close game…" + (c.S.CloseNoConfirm ? "" : " and confirm") + "). Never touched at all: anti-cheat - " + string.Join(", ", new[] { "SGuard", "ACE", "EasyAntiCheat", "BattlEye (BEService)", "Vanguard (vgc)", "FACEIT", "nProtect", "XIGNCODE", "PunkBuster" }) + " and similar.", 11.5, 0));
             var gc = Ui.Card(g); gc.Margin = new Thickness(0, 12, 0, 0); sp.Children.Add(gc);
             var b = Ui.Row(Ui.Btn("Check for updates", () => c.CheckForUpdate(true)), Ui.Btn("Open data folder", () => { if (Snap.On) return; try { Directory.CreateDirectory(TaskSettings.Dir); System.Diagnostics.Process.Start("explorer.exe", "\"" + TaskSettings.Dir + "\""); } catch { } }));
             b.Margin = new Thickness(0, 12, 0, 12); sp.Children.Add(b);

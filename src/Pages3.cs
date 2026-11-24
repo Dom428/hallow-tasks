@@ -67,8 +67,16 @@ namespace HallowTasks
                         add(Ui.Danger("Close", () =>
                         {
                             bool reopen = boostReopen.Contains(key);
-                            if (!Dialogs.Confirm(this, "Close " + g.Title + "?", "Windows asks it to close its windows (like Task Manager's End task). If it's still running after " + c.Boost.WaitSeconds + " s, Force close shows here - only if you click it. " + (reopen ? "It starts again after the game." : "Tick \"reopen after\" to start it again after the game.") + " Your game isn't touched.", "Close", false)) return;
-                            Act(c.BoostClose(g, reopen), "Asked " + g.Title + " to close.");
+                            var again = reopen ? " It starts again after the game." : " Tick \"reopen after\" to start it again after the game.";
+                            if (c.S.CloseAskFirst)
+                            {
+                                if (!Dialogs.Confirm(this, "Close " + g.Title + "?", "Windows asks it to close its windows (like Task Manager's End task). If it's still running after " + c.Boost.WaitSeconds + " s, Force close shows here - only if you click it." + again + " Your game isn't touched.", "Close", false)) return;
+                                Act(c.BoostClose(g, reopen), "Asked " + g.Title + " to close.");
+                                return;
+                            }
+                            // 1.5: one confirm (or none, with "Don't ask again"), then it ends right away
+                            if (!c.S.CloseNoConfirm && !Dialogs.Confirm(this, "End " + g.Title + " now?", "Unsaved work in it is lost. It ends right away - no waiting." + again + " Your game, anti-cheat, launchers, Windows and Hallow are never touched.", "Close now", true)) return;
+                            Act(c.BoostClose(g, reopen), g.Title + " closed.");
                         }));
                         var ro = new CheckBox { Content = Ui.Muted("reopen after", 11.5), IsChecked = boostReopen.Contains(key), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0), ToolTip = "Start it again after the game (from its own program file, the same way it was started)." };
                         ro.Click += (s, e) => { if (ro.IsChecked == true) boostReopen.Add(key); else boostReopen.Remove(key); };
@@ -86,9 +94,11 @@ namespace HallowTasks
             var cs = Ui.Danger("Close selected (" + boostSel.Count + ")", () =>
             {
                 var pick = rows.Where(r => boostSel.Contains(r.Group.Key) && r.CanClose).ToList(); if (pick.Count == 0) return;
-                if (!Dialogs.Confirm(this, "Close " + pick.Count + " app" + (pick.Count == 1 ? "" : "s") + "?", string.Join(", ", pick.Select(r => r.Group.Title)) + ". Windows asks each to close its windows; Force close shows for any still running after " + c.Boost.WaitSeconds + " s - only if you click it. Ticked \"reopen after\" ones start again after the game.", "Close", false)) return;
+                var names = string.Join(", ", pick.Select(r => r.Group.Title)); var apps = pick.Count + " app" + (pick.Count == 1 ? "" : "s");
+                if (c.S.CloseAskFirst ? !Dialogs.Confirm(this, "Close " + apps + "?", names + ". Windows asks each to close its windows; Force close shows for any still running after " + c.Boost.WaitSeconds + " s - only if you click it. Ticked \"reopen after\" ones start again after the game.", "Close", false)
+                                      : !Dialogs.Confirm(this, "End " + apps + " now?", names + ". Unsaved work in them is lost - they end right away, no waiting. Ticked \"reopen after\" ones start again after the game.", "Close now", true)) return;
                 var errs = pick.Select(r => c.BoostClose(r.Group, boostReopen.Contains(r.Group.Key))).Where(e => e != null).ToList(); boostSel.Clear();
-                Act(errs.FirstOrDefault(), "Asked " + pick.Count + " app" + (pick.Count == 1 ? "" : "s") + " to close.");
+                Act(errs.FirstOrDefault(), c.S.CloseAskFirst ? "Asked " + apps + " to close." : apps + " closed.");
             });
             cs.IsEnabled = boostSel.Count > 0; cs.Margin = new Thickness(0, 0, 8, 0); bar.Children.Add(cs);
             var rn = Ui.Btn("Restore now", () => { var m = c.BoostRestore(); Say(m); gameAt = null; Refresh(); }, false, "Priorities and Efficiency back, and the apps you ticked start again - now instead of after the game.");
@@ -111,7 +121,7 @@ namespace HallowTasks
                     case "asking": what = "asked to close - waiting " + c.Boost.SecondsLeft(cl, DateTime.Now) + " s"; break;
                     case "still": what = "still running after " + c.Boost.WaitSeconds + " s"; break;
                     case "closed": what = "closed"; break;
-                    case "forced": what = "force closed"; break;
+                    case "forced": what = cl.Instant ? "closed" : "force closed"; break;
                     case "denied": what = "Windows won't let Hallow Tasks end it"; break;
                     default: what = cl.State; break;
                 }

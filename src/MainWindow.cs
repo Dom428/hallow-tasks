@@ -488,26 +488,28 @@ namespace HallowTasks
             foreach (var t in p != null ? new List<ProcInfo> { p } : g.Members.Where(q => q.Pid != c.SelfPid).ToList()) { var e = c.SetAffinity(t, m.Value); if (e != null) errs.Add(e); }
             Done(errs.Count == 0 ? null : errs[0], "Affinity set - until it closes.");
         }
-        // v1.3: the confirm dialog explains both steps; nothing happens until you click Close game in it
+        // v1.3: the confirm dialog; nothing happens until you click in it. 1.5: one confirm, then Close now ends it right away (or the two
+        // steps, if Settings says "ask first"); with "Don't ask again" the click itself does it - the dialog only shows if Windows refuses
         void CloseGame(ProcInfo game)
         {
             if (c.CloseGameTarget(null, game) == null) return;
-            var run = c.NewGameClose(game);
-            var w = GameCloseWindow.Make(run, null);
-            if (IsVisible) { w.Owner = this; w.WindowStartupLocation = WindowStartupLocation.CenterOwner; }
-            w.ShowDialog();
-            if (run.Now == GameCloseRun.State.Closed || run.Now == GameCloseRun.State.Forced) { selKey = null; selChild = null; Done(null, run.Title + (run.Now == GameCloseRun.State.Closed ? " closed." : " was force closed.")); }
-            else { detailsFor = null; RefreshProcesses(); }
+            RunClose(c.NewGameClose(game));
         }
-        // v1.4: the same dialog in "app" mode for a Not responding app
+        // v1.4: the same dialog in "app" mode for a Not responding app (1.5: always ended right away after the confirm)
         void CloseApp(ProcInfo app)
         {
             if (c.CloseAppTarget(null, app) == null) return;
-            var run = c.NewAppClose(app);
-            var w = GameCloseWindow.Make(run, null);
-            if (IsVisible) { w.Owner = this; w.WindowStartupLocation = WindowStartupLocation.CenterOwner; }
-            w.ShowDialog();
-            if (run.Now == GameCloseRun.State.Closed || run.Now == GameCloseRun.State.Forced) { selKey = null; selChild = null; Done(null, run.Title + (run.Now == GameCloseRun.State.Closed ? " closed." : " was force closed.")); }
+            RunClose(c.NewAppClose(app));
+        }
+        void RunClose(GameCloseRun run)
+        {
+            if (run.Begin(c.S.CloseNoConfirm))
+            {
+                var w = GameCloseWindow.Make(run, null);
+                if (IsVisible) { w.Owner = this; w.WindowStartupLocation = WindowStartupLocation.CenterOwner; }
+                w.ShowDialog();
+            }
+            if (run.Now == GameCloseRun.State.Closed || run.Now == GameCloseRun.State.Forced) { selKey = null; selChild = null; Done(null, run.DoneText); }
             else { detailsFor = null; RefreshProcesses(); }
         }
         ContextMenu MenuFor(AppGroup g, ProcInfo p)

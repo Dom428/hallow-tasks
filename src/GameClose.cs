@@ -5,6 +5,10 @@
 // Battle.net, Epic, EA, Ubisoft...), never Windows or Hallow. When Windows says no (anti-cheat protects the game: access denied),
 // Tasks says so plainly and lists what you can do - it never tries to get around the protection (no admin, no debug privilege, no
 // driver, nothing done to anti-cheat). The log gets one line per outcome: the exe name and what happened.
+// 1.5: instant. By default "Close game..." is one confirm ("End <game> now? Unsaved progress is lost."), then Close now ends the game
+// and its own helpers right away (TerminateProcess, the same safe target list) - no 10 s wait. Settings > Games can switch back to
+// "Ask it to close first" (the two steps above), and "Don't ask again" skips the confirm (undo in Settings). A hung app ("Close (not
+// responding)") is always ended right away after its confirm - it can't answer WM_CLOSE anyway.
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -206,6 +210,10 @@ namespace HallowTasks
         // 1.4: the same two steps for an app that is "Not responding" (App = true): never a game (those use Close game...), anti-cheat,
         // a launcher, Windows or Hallow - checked again at each step
         public readonly bool App; readonly ProcInfo playing; readonly IEnumerable<string> extraGames;
+        // 1.5: AskFirst = Settings' "Ask it to close first" (games only; hung apps are always ended right away). NeverAsk: when set, the
+        // confirm shows "Don't ask again" and calls it if ticked. Instant: Close now ends it at once (no WM_CLOSE, no waiting).
+        public bool AskFirst; public Action NeverAsk; public bool EndedRightAway;
+        public bool Instant { get { return App || !AskFirst; } }
 
         public GameCloseRun(ProcInfo game, string title, IGameCloser io, Func<IList<ProcInfo>> procs, string windowsDir, int selfPid, Action<string> log)
             : this(game, title, io, procs, windowsDir, selfPid, log, false, null, null) { }
@@ -251,6 +259,29 @@ namespace HallowTasks
         public State Force()
         {
             if (Now != State.StillRunning) return Now;   // only after asking nicely didn't work
+            return Kill(false);
+        }
+        // 1.5 "Close now" (instant mode, your click on the one confirm): ends the game and its own helpers right away - no WM_CLOSE, no
+        // waiting. Windows refusing (anti-cheat) shows at once. Same checks and the same safe target list as Force close.
+        public State EndNow()
+        {
+            if (Now != State.Ready && Now != State.Asking && Now != State.StillRunning) return Now;
+            if (!Allowed(Game)) { Now = State.Failed; Log(Refused); return Now; }
+            AskedAt = DateTime.Now;
+            if (!io.Alive(Game.Pid, Game.CreateTime)) { Now = State.Closed; Log("it had already closed"); return Now; }
+            return Kill(true);
+        }
+        // what a click on Close game / Close (not responding) does when the confirm is skipped ("Don't ask again"): true = show the dialog
+        // (asking first: the countdown; Windows refusing: what you can do), false = done (it ended)
+        public bool Begin(bool skipConfirm)
+        {
+            if (!skipConfirm) return true;
+            if (Instant) EndNow(); else Ask(DateTime.Now);
+            return !(Now == State.Closed || Now == State.Forced);
+        }
+        public string DoneText { get { return Now == State.Closed ? Title + " closed." : EndedRightAway ? Title + " closed." : Title + " was force closed."; } }
+        State Kill(bool instant)
+        {
             var ts = Targets(); var game = ts[0];
             if (!Allowed(game)) { Now = State.Failed; Log(Refused); return Now; }
             int err; var r = io.Terminate(game.Pid, game.CreateTime, out err); Error = err;
@@ -258,8 +289,9 @@ namespace HallowTasks
             if (r == KillResult.Failed) { Now = State.Failed; Log("Windows couldn't end it (error " + err + ")"); return Now; }
             Ended = r == KillResult.Ok ? 1 : 0;
             foreach (var h in ts.Skip(1).Reverse()) { int e2; if (io.Terminate(h.Pid, h.CreateTime, out e2) == KillResult.Ok) Ended++; }
-            Now = r == KillResult.Gone && Ended == 0 ? State.Closed : State.Forced;
-            Log(Now == State.Closed ? "closed by itself just before Force close" : "force closed (" + Ended + " process" + (Ended == 1 ? "" : "es") + ")");
+            Now = r == KillResult.Gone && Ended == 0 ? State.Closed : State.Forced; EndedRightAway = instant && Now == State.Forced;
+            var n = Ended + " process" + (Ended == 1 ? "" : "es");
+            Log(Now == State.Closed ? (instant ? "it had already closed" : "closed by itself just before Force close") : instant ? "ended right away (" + n + ")" : "force closed (" + n + ")");
             return Now;
         }
         // the dialog was closed before the end
@@ -310,16 +342,29 @@ namespace HallowTasks
                     return new Border { Background = Ui.R(color + "Bg"), BorderBrush = Ui.R(color), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(2), Padding = new Thickness(10, 7, 10, 7), Margin = new Thickness(0, 4, 0, 8), Child = t };
                 };
                 int count = run.Targets().Count; string them = count <= 1 ? run.Game.Name : run.Game.Name + " and its own helpers (" + count + " processes)";
-                if (run.App && st == GameCloseRun.State.Ready)
+                if (run.Instant && st == GameCloseRun.State.Ready)
                 {
-                    sp.Children.Add(Ui.T("Close " + run.Title + "?", 15, true, null, 6));
-                    sp.Children.Add(Ui.Muted("It's not responding. Hallow Tasks only does this when you click it - never by itself.", 12.5, 12));
-                    sp.Children.Add(step("1", "Ask nicely: Windows asks " + run.Title + " to close its windows (what Task Manager's End task does), then Hallow Tasks waits up to " + run.WaitSeconds + " s. If it wakes up, it may still ask you to save."));
-                    sp.Children.Add(step("2", "If it's still running, Force close - only if you click it: ends " + them + " right away. Anything unsaved is lost."));
-                    sp.Children.Add(Ui.Muted("Never touched: games (they use Close game\u2026), anti-cheat, launchers (Steam, Battle.net...), Windows and Hallow apps.", 11.5, 0));
+                    // 1.5: one confirm, then it ends right away
+                    sp.Children.Add(Ui.T("End " + run.Title + " now?", 15, true, null, 6));
+                    sp.Children.Add(Ui.T(run.App ? "It's not responding. Unsaved work in it is lost." : "Unsaved progress is lost." + " If you're in a match, you'll leave it.", 12.5, false, Ui.R("Text"), 10));
+                    sp.Children.Add(Ui.Muted("Close now ends " + them + " right away - no waiting. " + (run.App ? "Never touched: games (they use Close game\u2026), anti-cheat, launchers, Windows and Hallow apps." : "Never touched: anti-cheat (ACE / SGuard, Easy Anti-Cheat, BattlEye, Vanguard...), Steam, Battle.net and other launchers, Windows and Hallow."), 11.5, 0));
+                    CheckBox never = null;
+                    if (run.NeverAsk != null)
+                    {
+                        never = new CheckBox { Content = Ui.Muted("Don't ask again (Settings > Games can turn it back on)", 11.5), Margin = new Thickness(0, 12, 0, 0), HorizontalAlignment = HorizontalAlignment.Left };
+                        sp.Children.Add(never);
+                    }
                     var row = buttons(); var cancel = Ui.Btn("Cancel", () => w.Close()); row.Children.Add(cancel);
-                    var go = Ui.Btn("Close app", () => { run.Ask(DateTime.Now); if (timer != null) timer.Start(); render(); }, true); go.Margin = new Thickness(0); go.MinWidth = 100; row.Children.Add(go);
-                    focus(cancel);
+                    var go = Ui.Danger("Close now", () =>
+                    {
+                        if (never != null && never.IsChecked == true) run.NeverAsk();
+                        run.EndNow();
+                        if (run.Now == GameCloseRun.State.Closed || run.Now == GameCloseRun.State.Forced) { w.Close(); return; }   // done: the window says so in its status line
+                        if (run.Now == GameCloseRun.State.Denied && timer != null) timer.Start();
+                        render();
+                    });
+                    go.Margin = new Thickness(0); go.MinWidth = 100; row.Children.Add(go);
+                    focus(cancel);   // Cancel has the focus: Enter never ends anything by accident
                 }
                 else if (st == GameCloseRun.State.Ready)
                 {
@@ -363,7 +408,7 @@ namespace HallowTasks
                 {
                     var good = st == GameCloseRun.State.Closed || st == GameCloseRun.State.Forced;
                     sp.Children.Add(Ui.T(st == GameCloseRun.State.Closed ? run.Title + " closed" : st == GameCloseRun.State.Forced ? run.Title + " was force closed" : "Windows couldn't end " + run.Title, 15, true, null, 6));
-                    sp.Children.Add(Ui.Muted(st == GameCloseRun.State.Closed ? "It closed after being asked nicely." : st == GameCloseRun.State.Forced ? run.Ended + " process" + (run.Ended == 1 ? "" : "es") + " ended." + (run.App ? "" : " Anti-cheat and launchers weren't touched - they close by themselves.") : "Windows said error " + run.Error + ". Try closing it from its launcher, or sign out / restart.", 12.5, 0));
+                    sp.Children.Add(Ui.Muted(st == GameCloseRun.State.Closed ? (run.Instant ? "It had already closed." : "It closed after being asked nicely.") : st == GameCloseRun.State.Forced ? run.Ended + " process" + (run.Ended == 1 ? "" : "es") + " ended." + (run.App ? "" : " Anti-cheat and launchers weren't touched - they close by themselves.") : "Windows said error " + run.Error + ". Try closing it from its launcher, or sign out / restart.", 12.5, 0));
                     var row = buttons(); var ok = Ui.Btn("OK", () => w.Close(), good); ok.Margin = new Thickness(0); ok.MinWidth = 80; row.Children.Add(ok);
                 }
             };
@@ -377,6 +422,8 @@ namespace HallowTasks
                     if (run.Now != before || run.Now == GameCloseRun.State.Asking) render();
                 };
             }
+            // 1.5: opened already asking (confirm skipped, "ask first") or already refused (confirm skipped): keep watching
+            if (timer != null && (run.Now == GameCloseRun.State.Asking || run.Now == GameCloseRun.State.Denied)) timer.Start();
             render();
             w.Closed += (s, e) => { stop(); run.Cancelled(); if (done != null) done(); };
             return w;

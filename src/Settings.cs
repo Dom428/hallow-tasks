@@ -44,6 +44,9 @@ namespace HallowTasks
         [DataMember] public List<string> BoostSkip;         // exe names Game boost never lists
         [DataMember] public List<BoostItem> BoostProfile;   // a saved Boost profile (what to lower / put in Efficiency mode / close)
         [DataMember] public bool BoostAuto;                 // apply the Boost profile when a game starts - off until you tick it
+        // 1.5
+        [DataMember] public bool CloseAskFirst;             // "When closing a game": false = end it right away (default), true = ask it to close first (10 s)
+        [DataMember] public bool CloseNoConfirm;            // "Don't ask again": Close game / Close (not responding) / Game boost's Close skip the confirm
 
         [OnDeserializing] void Defaults(StreamingContext c) { UseHallowIcon = true; UseHallowAccent = true; Sort = "impact"; Look = "hallow"; HistoryInTray = true; AlertCpu = 25; AlertGpu = 25; AlertSeconds = 20; HungNotes = true; }
 
